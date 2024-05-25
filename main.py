@@ -15,11 +15,14 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True  # Ensure message_content intent is enabled
+intents.messages = True
+intents.guilds = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = commands.Bot(command_prefix='/', intents=intents)
 
 @bot.event
 async def on_ready():
+    await bot.tree.sync()
     logger.info(f'{bot.user} has connected to Discord!')
 
 async def main():

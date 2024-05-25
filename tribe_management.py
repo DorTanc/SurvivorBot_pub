@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 import csv
 
 
@@ -7,10 +8,12 @@ class TribeManagement(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name='add_tribe')
+    @app_commands.command(name="add_tribe",
+                          description="מוסיף שבט חדש ומקצה לו תפקיד. (זמין רק למשתמשים בעלי תפקיד Host)")
+    @app_commands.describe(tribe_name="שם השבט להוספה")
     @commands.has_role('Host')
-    async def add_tribe(self, ctx, tribe_name: str):
-        guild = ctx.guild
+    async def add_tribe(self, interaction: discord.Interaction, tribe_name: str):
+        guild = interaction.guild
 
         # יצירת התפקיד
         tribe_role = await guild.create_role(name=tribe_name, mentionable=True)
@@ -32,10 +35,10 @@ class TribeManagement(commands.Cog):
             with open('tribes.csv', 'a', newline='') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow(['tribe', tribe_name])
-            await ctx.send(
+            await interaction.response.send_message(
                 f"The tribe '{tribe_name}' and its corresponding text channel have been created successfully.")
         except Exception as e:
-            await ctx.send(f"An error occurred while updating tribes.csv: {str(e)}")
+            await interaction.response.send_message(f"An error occurred while updating tribes.csv: {str(e)}")
 
 
 async def setup(bot):
