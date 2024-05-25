@@ -6,7 +6,7 @@ import os
 from typing import Optional
 from collections import defaultdict
 
-
+log_channel_id = 1243911112978858075
 
 class PlayerManagement(commands.Cog):
     def __init__(self, bot):
@@ -87,6 +87,11 @@ class PlayerManagement(commands.Cog):
                         await channel.set_permissions(select_interaction.guild.default_role, read_messages=False)
 
                     await select_interaction.followup.send(f"השחקן {player_name} נוסף בהצלחה לשבט {tribe_name}.")
+
+                    # Log the addition of the player
+                    log_channel = select_interaction.guild.get_channel(log_channel_id)
+                    if log_channel:
+                        await log_channel.send(f"השחקן {player_name} נוסף בהצלחה לשבט: {tribe_name}")
 
                     # Delete the initial "בחר שבט לשחקן:" message
                     await self.interaction.delete_original_response()
@@ -188,6 +193,7 @@ class PlayerManagement(commands.Cog):
                             current_roles = member.roles
                             for current_role in current_roles:
                                 if current_role.name in tribes:
+                                    former_tribe = current_role.name
                                     await member.remove_roles(current_role)
                             # Add new tribe role
                             await member.add_roles(tribe_role)
@@ -206,6 +212,11 @@ class PlayerManagement(commands.Cog):
                                 f"השחקן {selected_player} הועבר לשבט {selected_tribe}.")
                             await player_select_message.delete()
                             await tribe_interaction.message.delete()
+                            # Log the tribe change
+                            log_channel = tribe_interaction.guild.get_channel(log_channel_id)
+                            if log_channel:
+                                await log_channel.send(
+                                    f"השחקן {selected_player} עבר משבט {former_tribe} לשבט {selected_tribe}.")
                         else:
                             await tribe_interaction.response.send_message("שחקן או שבט לא נמצאו.")
 
@@ -312,11 +323,14 @@ class PlayerManagement(commands.Cog):
                         players_roles[player_name] = player_role
                         players_tribes[player_name] = player_tribe
 
-                selected_players_roles = [players_roles.get(player) for player in selected_players if player in players_roles]
-                selected_players_tribes = [players_tribes.get(player) for player in selected_players if player in players_tribes]
+                selected_players_roles = [players_roles.get(player) for player in selected_players if
+                                          player in players_roles]
+                selected_players_tribes = [players_tribes.get(player) for player in selected_players if
+                                           player in players_tribes]
 
                 if not selected_players_roles or len(selected_players_roles) != len(selected_players):
-                    await select_interaction.response.send_message("אחד או יותר מהשחקנים שנבחרו אינם תקפים.")
+                    await select_interaction.response.send_message("אחד או יותר מהשחקנים שנבחרו אינם תקפים.",
+                                                                   ephemeral=True)
                     return
 
                 if all(tribe == selected_players_tribes[0] for tribe in selected_players_tribes):
@@ -334,15 +348,18 @@ class PlayerManagement(commands.Cog):
                 # יצירת ערוצים לברית אם הם לא קיימים
                 alliance_text_channel = discord.utils.get(guild.text_channels, name=alliance_name_generated)
                 if not alliance_text_channel:
-                    alliance_text_channel = await guild.create_text_channel(alliance_name_generated, category=category, overwrites={
-                        guild.default_role: discord.PermissionOverwrite(read_messages=False)
-                    })
+                    alliance_text_channel = await guild.create_text_channel(alliance_name_generated, category=category,
+                                                                            overwrites={
+                                                                                guild.default_role: discord.PermissionOverwrite(
+                                                                                    read_messages=False)
+                                                                            })
 
                 alliance_voice_channel = discord.utils.get(guild.voice_channels, name=alliance_name_generated)
                 if not alliance_voice_channel:
-                    alliance_voice_channel = await guild.create_voice_channel(alliance_name_generated, category=category, overwrites={
-                        guild.default_role: discord.PermissionOverwrite(connect=False)
-                    })
+                    alliance_voice_channel = await guild.create_voice_channel(alliance_name_generated,
+                                                                              category=category, overwrites={
+                            guild.default_role: discord.PermissionOverwrite(connect=False)
+                        })
 
                 for player in selected_players:
                     role_name = players_roles.get(player)
@@ -354,12 +371,18 @@ class PlayerManagement(commands.Cog):
 
                 await select_interaction.message.delete()
 
+                # Acknowledge the interaction and send the follow-up message
                 try:
-                    await interaction.followup.send(f"הברית {alliance_name_generated} נוצרה בהצלחה.")
-                except discord.errors.NotFound:
-                    await interaction.followup.send(f"הברית {alliance_name_generated} נוצרה בהצלחה.")
+                    await select_interaction.response.send_message(f"הברית {alliance_name_generated} נוצרה בהצלחה.",
+                                                                   ephemeral=True)
                 except Exception as e:
-                    print(f"Failed to send follow-up message: {e}")
+                    print(f"Failed to send initial response: {e}")
+
+                # Log the creation of the alliance
+                log_channel = guild.get_channel(log_channel_id)
+                if log_channel:
+                    players_list = ", ".join(selected_players)
+                    await log_channel.send(f"הברית {alliance_name_generated} המכילה את {players_list} נוצרה בהצלחה.")
 
         class PlayerSelectView(discord.ui.View):
             def __init__(self, players):
@@ -373,7 +396,8 @@ class PlayerManagement(commands.Cog):
             players = [row[1] for row in reader if row[1] != interaction.user.display_name]
 
         if players:
-            await interaction.response.send_message("בחר שחקנים לברית:", view=PlayerSelectView(players))
+            view = PlayerSelectView(players)
+            await interaction.response.send_message("בחר שחקנים לברית:", view=view)
         else:
             await interaction.response.send_message("אין שחקנים זמינים לברית.")
 
@@ -450,6 +474,11 @@ class PlayerManagement(commands.Cog):
                                 f"השחקן {selected_player} סומן כ-{expel_type}.")
                             await expel_interaction.message.delete()
 
+                            # Log the expulsion
+                            log_channel = interaction.guild.get_channel(log_channel_id)
+                            if log_channel:
+                                await log_channel.send(f"השחקן {selected_player} הודח, וסומן כ-{expel_type}.")
+
                     await select_interaction.response.send_message("בחר סוג מודח:",
                                                                    view=discord.ui.View().add_item(ExpelTypeSelect()))
                 else:
@@ -518,7 +547,7 @@ class PlayerManagement(commands.Cog):
                                             break
 
                                     if not found:
-                                        advantages.append([player, "צ'יפים", chips_amount])
+                                        advantages.append([player, "צ'יפים", str(chips_amount)])
 
                                     with open('advantages.csv', 'w', newline='') as csvfile:
                                         writer = csv.writer(csvfile)
@@ -526,6 +555,11 @@ class PlayerManagement(commands.Cog):
 
                                     await modal_interaction.response.send_message(
                                         f"נוספו {chips_amount} צ'יפים לשחקן {player}.", ephemeral=False)
+
+                                    # Log the addition
+                                    log_channel = interaction.guild.get_channel(log_channel_id)
+                                    if log_channel:
+                                        await log_channel.send(f"נוספו {chips_amount} צ'יפים לשחקן {player}.")
 
                             await advantage_interaction.response.send_modal(ChipsModal())
                         else:
@@ -542,7 +576,7 @@ class PlayerManagement(commands.Cog):
                                     break
 
                             if not found:
-                                advantages.append([player, "פסלון", 1])
+                                advantages.append([player, "פסלון", '1'])
 
                             with open('advantages.csv', 'w', newline='') as csvfile:
                                 writer = csv.writer(csvfile)
@@ -550,6 +584,11 @@ class PlayerManagement(commands.Cog):
 
                             await advantage_interaction.response.send_message(f"נוסף פסלון לשחקן {player}.",
                                                                               ephemeral=False)
+
+                            # Log the addition
+                            log_channel = interaction.guild.get_channel(log_channel_id)
+                            if log_channel:
+                                await log_channel.send(f"נוסף פסלון לשחקן {player}")
 
                 view = discord.ui.View()
                 view.add_item(AdvantageSelect(selected_player))
@@ -640,7 +679,6 @@ class PlayerManagement(commands.Cog):
 
             async def callback(self, advantage_interaction: discord.Interaction):
                 selected_advantage = self.values[0]
-                amount = advantages[selected_advantage]
 
                 class AmountModal(discord.ui.Modal):
                     def __init__(self):
@@ -697,6 +735,12 @@ class PlayerManagement(commands.Cog):
                                 if target_channel:
                                     await target_channel.send(f"אתה קיבלת {amount} {selected_advantage} מ-{user_name}.")
 
+                                # Log the transfer
+                                log_channel = target_interaction.guild.get_channel(log_channel_id)
+                                if log_channel:
+                                    await log_channel.send(
+                                        f"{user_name} העביר {amount} {selected_advantage} ל-{target_player}.")
+
                         players = []
                         with open('players.csv', 'r', newline='') as csvfile:
                             reader = csv.reader(csvfile)
@@ -715,6 +759,92 @@ class PlayerManagement(commands.Cog):
         view.add_item(AdvantageSelect(advantages))
         await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=True)
 
+    @app_commands.command(name="find_idol", description="מחפש את הפסלון בשבט שלך.")
+    async def find_idol(self, interaction: discord.Interaction):
+        user_name = interaction.user.display_name
+        user_private_channel = [f"{user_name}-חיפוש-פסלון"]
+
+        # Convert to lowercase for comparison
+        current_channel_name = interaction.channel.name.lower()
+        expected_private_channels = [channel.lower() for channel in user_private_channel]
+
+        # Check if the command is used in one of the private channels
+        if current_channel_name not in expected_private_channels:
+            await interaction.response.send_message("הפקודה עובדת רק בערוץ חיפוש הפסלון", ephemeral=False)
+            return
+
+        # Read player's tribe from players.csv
+        user_tribe = None
+        with open('players.csv', 'r', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            for row in reader:
+                if row[1] == user_name:
+                    user_tribe = row[2]
+                    break
+
+        if not user_tribe:
+            await interaction.response.send_message("שגיאה: לא נמצא שבט לשחקן.", ephemeral=True)
+            return
+
+        class IdolModal(discord.ui.Modal):
+            def __init__(self):
+                super().__init__(title="מצא פסלון")
+                self.idol_name = discord.ui.TextInput(label="שם הפסלון", placeholder="הכנס את שם הפסלון", min_length=1,
+                                                      max_length=50)
+                self.add_item(self.idol_name)
+
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                idol_name = self.idol_name.value.strip()
+
+                # Check if the idol exists in idols.csv
+                idol_found = False
+                idol_row_index = None
+                idols_data = []
+                with open('idols.csv', 'r', newline='') as csvfile:
+                    reader = csv.reader(csvfile)
+                    idols_data = list(reader)
+                    for index, row in enumerate(idols_data):
+                        if row[0] == idol_name and row[1] == user_tribe and row[2] == '0':
+                            idol_found = True
+                            idol_row_index = index
+                            break
+
+                if idol_found:
+                    # Update the idol's status to found
+                    idols_data[idol_row_index][2] = '1'
+                    with open('idols.csv', 'w', newline='') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerows(idols_data)
+
+                    # Add the idol to the user's advantages
+                    advantage_added = False
+                    advantages_data = []
+                    with open('advantages.csv', 'r', newline='') as csvfile:
+                        reader = csv.reader(csvfile)
+                        advantages_data = list(reader)
+                        for row in advantages_data:
+                            if row[0] == user_name and row[1] == 'פסלון':
+                                row[2] = str(int(row[2]) + 1)
+                                advantage_added = True
+                        if not advantage_added:
+                            advantages_data.append([user_name, 'פסלון', '1'])
+
+                    with open('advantages.csv', 'w', newline='') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerows(advantages_data)
+
+                    await modal_interaction.response.send_message(f"מצאת את הפסלון {idol_name}! הפסלון נוסף ליתרונות שלך", ephemeral=False)
+
+                    # Log the finding of the idol
+                    log_channel = interaction.guild.get_channel(log_channel_id)
+                    if log_channel:
+                        await log_channel.send(f"{user_name} מצא את הפסלון {idol_name} בשבט {user_tribe}.")
+                else:
+                    await modal_interaction.response.send_message("לא נמצא פסלון כזה או שהפסלון כבר נמצא בעבר.",
+                                                                  ephemeral=False)
+
+        await interaction.response.send_modal(IdolModal())
+
 
     @app_commands.command(name="commands", description="מציג רשימת פקודות")
     async def show_commands(self, interaction: discord.Interaction):
@@ -730,6 +860,7 @@ class PlayerManagement(commands.Cog):
 7. /add_advantage - פותח חלון לבחירת שחקן ואז חלון נוסף לבחירת סוג יתרון (פסלון או צ'יפים). אם נבחר צ'יפים, ישנה שאלה לגבי כמות הצ'יפים להוסיף. (זמין רק למשתמשים בעלי תפקיד Host)
 8. /advantages - מציג את היתרונות של השחקן (זמין רק בערוצים פרטיים של השחקן).
 9. /transfer_advantage - מעביר יתרון לשחקן אחר.
+10. /find_idol - פותח חלון לחיפוש האישיות של הפסלון.
 """
         await interaction.response.send_message(f"```\n{commands_description}\n```")
 

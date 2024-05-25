@@ -10,7 +10,7 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
 # Create initial files if they don't exist
-files = ["players.csv", "tribes.csv", "idols.csv", "advantages.csv"]
+files = ["players.csv", "tribes.csv", "idols.csv", "advantages.csv", "menu.csv"]
 initial_data = {
     "tribes.csv": "voting,none\n"
 }
