@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD_ID = int(os.getenv('DISCORD_GUILD_ID'))  # Add your guild ID to the .env file
+DATABASE_PLAYERS_CHANNEL_ID = int(os.getenv('DISCORD_DATABASE_PLAYERS_CHANNEL_ID'))
 
 intents = discord.Intents.default()
 intents.members = True
@@ -27,7 +28,7 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         guild = discord.Object(id=GUILD_ID)
         # Sync commands only for the specific guild during testing
-        self.tree.copy_global_to(guild=guild)
+        # self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
         # Comment out the global sync if you don't want to register commands globally
         # await self.tree.sync()
@@ -37,6 +38,7 @@ bot = MyBot()
 @bot.event
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord!')
+    await bot.change_presence(activity=discord.Game(name="הישרדות עונה 6"))
 
 @bot.command()
 @commands.has_role('Host')
@@ -49,6 +51,23 @@ async def add_command(ctx, name: str, description: str):
     await bot.tree.sync(guild=discord.Object(id=GUILD_ID))
 
     await ctx.send(f'Command /{name} added and synced!')
+
+@bot.command()
+@commands.has_role('Host')
+async def sync_commands(ctx):
+    guild = discord.Object(id=GUILD_ID)
+    await bot.tree.sync(guild=guild)
+    await bot.tree.sync()  # Sync globally
+    await ctx.send("Commands have been resynced!")
+
+@bot.command()
+@commands.has_role('Host')
+async def clear_commands(ctx):
+    guild = discord.Object(id=GUILD_ID)
+    bot.tree.clear_commands(guild=guild)
+    await bot.tree.sync(guild=guild)
+    await bot.tree.sync()  # Sync globally
+    await ctx.send("Commands have been cleared and resynced!")
 
 async def main():
     async with bot:
