@@ -102,31 +102,42 @@ class PlayerManagement(commands.Cog):
 
         await self.update_advantage(interaction.guild, target_player, selected_advantage, new_amount)
 
+        # confirmation to transferring player
+        new_amount_user = user_advantages[selected_advantage] - amount
         embed = discord.Embed(
             title="",
-            description=f"העברת {amount} {selected_advantage} לשחקן {target_player}.",
+            description=f"העברת {amount} {selected_advantage} ל {target_player}\nנשארו לך {new_amount_user} {selected_advantage}",
             color=await self.get_player_tribe_color(interaction.guild, user_name)
         )
-        await interaction.followup.send(embed=embed, ephemeral=False)
+        file = discord.File("chips.png", filename="chips.png")
+        embed.set_image(url="attachment://chips.png")
+        await interaction.followup.send(file=file, embed=embed, ephemeral=False)
 
+        # confirmation to target player
         target_channel_name = f"{target_player.replace(' ', '-').lower()}-משחק"
         target_channel = discord.utils.get(interaction.guild.text_channels, name=target_channel_name)
         if target_channel:
+            new_amount_target = target_advantages[selected_advantage] + amount
             embed = discord.Embed(
-                title="",
-                description=f"אתה קיבלת {amount} {selected_advantage} מ-{user_name}.",
+                title="מזל טוב!",
+                description=f"קיבלת {amount} {selected_advantage} מ-{user_name}\nעכשיו יש לך {new_amount_target} {selected_advantage}",
                 color=await self.get_player_tribe_color(interaction.guild, target_player)
             )
-            await target_channel.send(embed=embed)
+            file = discord.File("chips.png", filename="chips.png")
+            embed.set_image(url="attachment://chips.png")
+            await target_channel.send(file=file, embed=embed)
 
+        # log transfer
         log_channel = interaction.guild.get_channel(log_channel_id)
         if log_channel:
             embed = discord.Embed(
                 title="",
-                description=f"{user_name} העביר {amount} {selected_advantage} ל-{target_player}.",
+                description=f"{target_player} העביר {amount} {selected_advantage} ל {user_name}\nל {user_name} יש עכשיו {new_amount_user} {selected_advantage}\nל {target_player} יש עכשיו {new_amount_target} {selected_advantage}",
                 color=await self.get_player_tribe_color(interaction.guild, user_name)
             )
-            await log_channel.send(embed=embed)
+            file = discord.File("chips.png", filename="chips.png")
+            embed.set_image(url="attachment://chips.png")
+            await log_channel.send(file=file, embed=embed)
 
     async def get_tribe_colors(self, guild):
         database_tribes_channel = guild.get_channel(database_tribes_channel_id)
@@ -835,21 +846,25 @@ class PlayerManagement(commands.Cog):
                         if log_channel:
                             embed = discord.Embed(
                                 title="הוספת צ'יפים",
-                                description=f"נוספו {chips_amount} צ'יפים לשחקן {self.selected_player}.",
+                                description=f"נוספו {chips_amount} צ'יפים ל {self.selected_player}\nל {self.selected_player} יש עכשיו {new_amount} צ'יפים",
                                 color=await self.cog.get_player_tribe_color(interaction.guild, selected_player)
                             )
-                            await log_channel.send(embed=embed)
+                            file = discord.File("chips.png", filename="chips.png")
+                            embed.set_image(url="attachment://chips.png")
+                            await log_channel.send(file=file, embed=embed)
 
                         # Send an embed message to the player's private channel
                         player_channel_name = f"{self.selected_player.replace(' ', '-')}-משחק".lower()
                         player_channel = discord.utils.get(interaction.guild.text_channels, name=player_channel_name)
                         if player_channel:
                             player_embed = discord.Embed(
-                                title="הוספת צ'יפים",
-                                description=f"נוספו לך {chips_amount} צ'יפים.",
+                                title="מזל טוב!",
+                                description=f"נוספו לך {chips_amount} צ'יפים\nעכשיו יש לך {new_amount} צ'יפים",
                                 color=await self.cog.get_player_tribe_color(interaction.guild, selected_player)
                             )
-                            await player_channel.send(embed=player_embed)
+                            file = discord.File("chips.png", filename="chips.png")
+                            player_embed.set_image(url="attachment://chips.png")
+                            await player_channel.send(file=file, embed=player_embed)
 
                 await select_interaction.response.send_modal(ChipsModal(self.cog, selected_player))
 
