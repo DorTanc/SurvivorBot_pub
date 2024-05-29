@@ -152,7 +152,7 @@ class PlayerManagement(commands.Cog):
 
             embed = discord.Embed(
                 title=f"שבט {tribe}",
-                description=f"חברי שבט {tribe}\n{player_list if player_list else 'No players'}",
+                description=f"{player_list if player_list else 'No players'}",
                 color=tribe_colors.get(tribe, discord.Color.blue())  # Use the tribe color, default to blue
             )
             embeds.append(embed)
@@ -404,7 +404,7 @@ class PlayerManagement(commands.Cog):
         modal = ChipsAmountModal(self, interaction, "צ'יפים")
         await interaction.response.send_modal(modal)
 
-    @app_commands.command(name="transfer_idol", description="מעביר פסלון משחקן אחד לאחר.")
+    @app_commands.command(name="transfer_idol", description="מעביר אליל משחקן אחד לאחר.")
     async def transfer_idol(self, interaction: discord.Interaction):
         is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
         if not is_correct_channel:
@@ -466,7 +466,7 @@ class PlayerManagement(commands.Cog):
         modal = IdolAmountModal(self, interaction, "פסלון")
         await interaction.response.send_modal(modal)
 
-    @app_commands.command(name="find_idol", description="מחפש את הפסלון בשבט שלך.")
+    @app_commands.command(name="find_idol", description="מחפש את האליל בשבט שלך.")
     async def find_idol(self, interaction: discord.Interaction):
         user_name = interaction.user.display_name
         user_private_channel = [f"{user_name}-משחק"]
@@ -579,10 +579,11 @@ class PlayerManagement(commands.Cog):
                     color=discord.Color.from_rgb(r=255,g=255,b=255)
                 )
         embed.add_field(name="/players", value='\u202Bמציג רשימה של כל השחקנים והשבטים שלהם', inline=False)
-        embed.add_field(name="/alliance [שם ברית]", value="\u202Bיצירת ברית חדשה עם תפקידים נבחרים, ויצירת ערוץ טקסט וערוץ קול עבור הברית.", inline=False)
-        embed.add_field(name="/advantages", value="\u202Bמציג את היתרונות של השחקן (זמין רק בערוצים פרטיים של השחקן).", inline=False)
-        embed.add_field(name="/transfer_advantage", value="\u202Bמעביר יתרון לשחקן אחר.", inline=False)
-        embed.add_field(name="/find_idol", value="\u202Bפותח חלון לחיפוש האישיות של הפסלון.", inline=False)
+        embed.add_field(name="/alliance [שם ברית]", value="\u202Bיצירת ברית חדשה, ויצירת ערוץ טקסט וערוץ קול עבור הברית.", inline=False)
+        embed.add_field(name="/show_advantages", value="\u202Bמציג את היתרונות של השחקן (זמין רק בערוצים פרטיים של השחקן).", inline=False)
+        embed.add_field(name="/transfer_chips", value="\u202Bמעביר צ'יפים לשחקן אחר.", inline=False)
+        embed.add_field(name="/transfer_idol", value="\u202Bמעביר אליל לשחקן אחר.", inline=False)
+        embed.add_field(name="/find_idol", value="\u202Bפותח חלון לחיפוש האליל, שבו יש להזין את שם המפורסם.", inline=False)
         
         await interaction.response.send_message(embed=embed)
 
@@ -599,7 +600,7 @@ class PlayerManagement(commands.Cog):
         embed.add_field(name="/add\_tribe [שם שבט]", value="\u202Bמוסיף שבט חדש ומקצה לו תפקיד. יוצר ערוץ צ'אט תחת הקטגוריה 'שבטים' עם הרשאות מתאימות.", inline=False)
         embed.add_field(name="/change_tribe", value="\u202Bפותח חלון לבחירת שחקן ואז חלון נוסף לבחירת שבט חדש עבור השחקן.", inline=False)
         embed.add_field(name="/expel", value="\u202Bפותח חלון לבחירת שחקן להדחה ואז חלון נוסף לבחירת תפקיד חדש (מודח או מושבע).", inline=False)
-        embed.add_field(name="/add_advantage", value="\u202Bפותח חלון לבחירת שחקן ואז חלון נוסף לבחירת סוג יתרון (פסלון או צ'יפים). אם נבחר צ'יפים, ישנה שאלה לגבי כמות הצ'יפים להוסיף.", inline=False)
+        embed.add_field(name="/add_chips", value="\u202Bמוסיף צ'יפים לשחקן", inline=False)
         
         await interaction.response.send_message(embed=embed)
 
@@ -685,7 +686,7 @@ class PlayerManagement(commands.Cog):
             await interaction.response.send_message("אין שבטים זמינים.")
 
     @app_commands.command(name="change_tribe",
-                          description="פונקציה להעברת שחקן לשבט חדש. (זמין רק למשתמשים בעלי תפקיד Host)")
+                          description="מעביר שחקן לשבט חדש")
     @commands.has_role('Host')
     async def change_tribe(self, interaction: discord.Interaction):
         class PlayerSelect(discord.ui.Select):
