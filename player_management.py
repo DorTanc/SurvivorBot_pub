@@ -105,7 +105,7 @@ class PlayerManagement(commands.Cog):
         embed = discord.Embed(
             title="",
             description=f"העברת {amount} {selected_advantage} לשחקן {target_player}.",
-            color=discord.Color.dark_grey()
+            color=await self.get_player_tribe_color(interaction.guild, user_name)
         )
         await interaction.followup.send(embed=embed, ephemeral=False)
 
@@ -115,7 +115,7 @@ class PlayerManagement(commands.Cog):
             embed = discord.Embed(
                 title="",
                 description=f"אתה קיבלת {amount} {selected_advantage} מ-{user_name}.",
-                color=discord.Color.dark_grey()
+                color=await self.get_player_tribe_color(interaction.guild, target_player)
             )
             await target_channel.send(embed=embed)
 
@@ -124,7 +124,7 @@ class PlayerManagement(commands.Cog):
             embed = discord.Embed(
                 title="",
                 description=f"{user_name} העביר {amount} {selected_advantage} ל-{target_player}.",
-                color=discord.Color.dark_grey()
+                color=await self.get_player_tribe_color(interaction.guild, user_name)
             )
             await log_channel.send(embed=embed)
 
@@ -178,6 +178,16 @@ class PlayerManagement(commands.Cog):
         players_tribes = {player_name: tribe_name for user_id, player_name, tribe_name in players}
         return players_roles, players_tribes
 
+    async def get_player_tribe_color(self, guild, player):
+        players = await self.fetch_players_with_details(guild)
+        player_tribe = None
+        for uid, player_name, tribe_name in players:
+            if player_name == player:
+                player_tribe = tribe_name
+                break
+        tribe_colors = await self.get_tribe_colors(guild)
+        return tribe_colors.get(player_tribe)
+
     async def create_alliance_channels(self, guild, category_name, alliance_name, selected_players_roles):
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
@@ -212,7 +222,7 @@ class PlayerManagement(commands.Cog):
             embed = discord.Embed(
                 title="ברית נוצרה",
                 description=f"הברית {alliance_name} המכילה את {players_list} נוצרה בהצלחה.",
-                color=discord.Color.green()
+                color=discord.Color.from_rgb(r=255,g=255,b=255)
             )
             await log_channel.send(embed=embed)
 
@@ -282,7 +292,7 @@ class PlayerManagement(commands.Cog):
                 embed = discord.Embed(
                     title="הברית נוצרה",
                     description=f"הברית {alliance_name_final} נוצרה בהצלחה.",
-                    color=discord.Color.green()
+                    color=await self.cog.get_player_tribe_color(interaction.guild, interaction.user.display_name)
                 )
                 await select_interaction.followup.send(embed=embed, ephemeral=True)
                 await self.cog.send_alliance_log(guild, alliance_name_final, selected_players)
@@ -328,7 +338,7 @@ class PlayerManagement(commands.Cog):
         embed = discord.Embed(
             title="היתרונות שלך:",
             description=advantages_text,
-            color=discord.Color.dark_grey()
+            color= await self.get_player_tribe_color(interaction.guild, player_display_name)
         )
         await interaction.response.send_message(embed=embed)
 
@@ -345,7 +355,12 @@ class PlayerManagement(commands.Cog):
         user_advantages = {adv[1]: int(adv[2]) for adv in advantages if adv[0] == user_name}
 
         if "צ'יפים" not in user_advantages:
-            await interaction.response.send_message("אין לך צ'יפים להעביר.", ephemeral=True)
+            embed = discord.Embed(
+            title="",
+            description="אין לך צ'יפים להעביר.",
+            color= await self.get_player_tribe_color(interaction.guild, user_name)
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         class ChipsAmountModal(discord.ui.Modal):
@@ -416,12 +431,12 @@ class PlayerManagement(commands.Cog):
         advantages = await self.fetch_advantages(interaction.guild)
         user_advantages = {adv[1]: int(adv[2]) for adv in advantages if adv[0] == user_name}
 
-        if "פסלון" not in user_advantages:
-            await interaction.response.send_message("אין לך פסלון להעביר.", ephemeral=True)
+        if "אליל" not in user_advantages:
+            await interaction.response.send_message("אין לך אליל להעביר.", ephemeral=True)
             return
 
         class IdolAmountModal(discord.ui.Modal):
-            idol_amount = discord.ui.TextInput(label="מספר פסלונים", placeholder="כמה פסלונים להעביר?",
+            idol_amount = discord.ui.TextInput(label="מספר אלילים", placeholder="כמה אלילים להעביר?",
                                                min_length=1, max_length=5, required=True)
 
             def __init__(self, cog, interaction, selected_advantage):
@@ -438,7 +453,7 @@ class PlayerManagement(commands.Cog):
                     return
 
                 if amount > user_advantages[self.selected_advantage]:
-                    await modal_interaction.response.send_message("אין מספיק פסלונים להעברה.", ephemeral=True)
+                    await modal_interaction.response.send_message("אין מספיק אלילים להעברה.", ephemeral=True)
                     return
 
                 players = await self.cog.fetch_players(modal_interaction.guild)
@@ -454,7 +469,7 @@ class PlayerManagement(commands.Cog):
 
                     async def callback(self, target_interaction: discord.Interaction):
                         target_player = self.values[0]
-                        await self.cog.transfer_advantage(self.interaction, "פסלון", self.amount, target_player)
+                        await self.cog.transfer_advantage(self.interaction, "אליל", self.amount, target_player)
 
                         if self.interaction.message:
                             await self.interaction.message.delete()
@@ -463,7 +478,7 @@ class PlayerManagement(commands.Cog):
                 view.add_item(TargetPlayerSelect(player_names, self.cog, amount, self.interaction))
                 await modal_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=False)
 
-        modal = IdolAmountModal(self, interaction, "פסלון")
+        modal = IdolAmountModal(self, interaction, "אליל")
         await interaction.response.send_modal(modal)
 
     @app_commands.command(name="find_idol", description="מחפש את האליל בשבט שלך.")
@@ -500,8 +515,8 @@ class PlayerManagement(commands.Cog):
 
         class IdolModal(discord.ui.Modal):
             def __init__(self):
-                super().__init__(title="מצא פסלון")
-                self.idol_name = discord.ui.TextInput(label="שם הפסלון", placeholder="הכנס את שם הפסלון", min_length=1,
+                super().__init__(title="מצא אליל")
+                self.idol_name = discord.ui.TextInput(label="שם האליל", placeholder="הכנס את שם האליל", min_length=1,
                                                       max_length=50)
                 self.add_item(self.idol_name)
 
@@ -547,7 +562,7 @@ class PlayerManagement(commands.Cog):
 
                     embed = discord.Embed(
                     title=f"",
-                    description=f"מצאת את הפסלון {idol_name}! הפסלון נוסף ליתרונות שלך",
+                    description=f"מצאת את האליל {idol_name}! האליל נוסף ליתרונות שלך",
                     color=discord.Color.yellow()
                     )
                     await modal_interaction.response.send_message(embed=embed, ephemeral=False)
@@ -557,7 +572,7 @@ class PlayerManagement(commands.Cog):
                     if log_channel:
                         embed = discord.Embed(
                         title=f"",
-                        description=f"מצא את הפסלון {idol_name} בשבט {user_tribe} {user_name}",
+                        description=f"מצא את האליל {idol_name} בשבט {user_tribe} {user_name}",
                         color=discord.Color.yellow()
                         )
                         await log_channel.send(embed=embed)
@@ -821,7 +836,7 @@ class PlayerManagement(commands.Cog):
                             embed = discord.Embed(
                                 title="הוספת צ'יפים",
                                 description=f"נוספו {chips_amount} צ'יפים לשחקן {self.selected_player}.",
-                                color=discord.Color.green()
+                                color=await self.cog.get_player_tribe_color(interaction.guild, selected_player)
                             )
                             await log_channel.send(embed=embed)
 
@@ -832,7 +847,7 @@ class PlayerManagement(commands.Cog):
                             player_embed = discord.Embed(
                                 title="הוספת צ'יפים",
                                 description=f"נוספו לך {chips_amount} צ'יפים.",
-                                color=discord.Color.green()
+                                color=await self.cog.get_player_tribe_color(interaction.guild, selected_player)
                             )
                             await player_channel.send(embed=player_embed)
 
