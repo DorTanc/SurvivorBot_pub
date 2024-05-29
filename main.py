@@ -28,8 +28,8 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         guild = discord.Object(id=GUILD_ID)
         # Sync commands only for the specific guild during testing
-        # self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
+        self.tree.copy_global_to(guild=guild)
+        # await self.tree.sync(guild=guild)
         # Comment out the global sync if you don't want to register commands globally
         # await self.tree.sync()
 

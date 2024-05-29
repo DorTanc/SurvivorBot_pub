@@ -14,6 +14,7 @@ log_channel_id = 1243911112978858075
 database_players_channel_id = 1244238505882947626
 database_tribes_channel_id = 1244328239086829712
 database_advantages_channel_id = 1244334271615991841
+database_idol_channel_id = 1244710921482535042
 
 class PlayerManagement(commands.Cog):
     def __init__(self, bot):
@@ -51,13 +52,17 @@ class PlayerManagement(commands.Cog):
             advantages.append(message.content.split(','))
         return advantages
 
+    async def fetch_idols(self, guild):
+        database_idol_channel = guild.get_channel(database_idol_channel_id)
+        idols = []
+        async for message in database_idol_channel.history(limit=None):
+            idols.append(message.content.split(','))
+        return idols
+
     async def add_player_to_channel(self, guild, user_id, player_name, tribe_name):
         database_players_channel = guild.get_channel(database_players_channel_id)
         await database_players_channel.send(f"{user_id},{player_name},{tribe_name}")
 
-    async def add_advantage_to_channel(self, guild, player, advantage_type, amount):
-        database_advantages_channel = guild.get_channel(database_advantages_channel_id)
-        await database_advantages_channel.send(f"{player},{advantage_type},{amount}")
 
     async def update_advantage(self, guild, player, advantage_type, new_amount):
         database_advantages_channel = guild.get_channel(database_advantages_channel_id)
@@ -73,7 +78,26 @@ class PlayerManagement(commands.Cog):
 
     async def add_advantage_to_channel(self, guild, player, advantage_type, amount):
         database_advantages_channel = guild.get_channel(database_advantages_channel_id)
-        await database_advantages_channel.send(f"{player},{advantage_type},{amount}")
+        updated = False
+        messages = []
+        async for message in database_advantages_channel.history(limit=None):
+            if message.content.startswith(f"{player}"):
+                messages.append(message)
+
+        if messages:
+            for message in messages:
+                if f"{advantage_type}" in message.content:
+                    current_amount = int(message.content.split(',')[2])
+                    new_amount = current_amount + int(amount)
+                    await message.edit(content=f"{player},{advantage_type},{new_amount}")
+                    updated = True
+                else:
+                    await message.edit(content=f"{message.content},{advantage_type},{int(amount)}")
+                    updated = True
+
+
+        if not updated:
+            await database_advantages_channel.send(f"{player},{advantage_type},{amount}")
 
     async def is_in_correct_channel(self, interaction):
         player_display_name = interaction.user.display_name.lower()
@@ -81,6 +105,10 @@ class PlayerManagement(commands.Cog):
         current_channel_name = interaction.channel.name.lower()
         player_game_channel = discord.utils.get(interaction.guild.text_channels, name=player_game_channel_name)
         return current_channel_name == player_game_channel_name, player_game_channel
+
+    async def add_idol_to_channel(self, guild, idol_name, idol_tribe, idol_image_url, found):
+        database_idol_channel = guild.get_channel(database_idol_channel_id)
+        await database_idol_channel.send(f"{idol_name},{idol_tribe},{idol_image_url},{found}")
 
     async def transfer_advantage(self, interaction, selected_advantage, amount, target_player):
         user_name = interaction.user.display_name
@@ -139,6 +167,12 @@ class PlayerManagement(commands.Cog):
             embed.set_image(url="attachment://chips.png")
             await log_channel.send(file=file, embed=embed)
 
+    async def get_player_tribe(self, guild, player_name):
+        players = await self.fetch_players_with_details(guild)
+        for user_id, name, tribe in players:
+            if name == player_name:
+                return tribe
+        return None
     async def get_tribe_colors(self, guild):
         database_tribes_channel = guild.get_channel(database_tribes_channel_id)
         tribe_colors = {}
@@ -151,6 +185,15 @@ class PlayerManagement(commands.Cog):
                 except ValueError:
                     continue
         return tribe_colors
+
+    async def get_tribe_color_by_name(self, guild, tribe_name):
+        database_tribes_channel = guild.get_channel(database_tribes_channel_id)
+        async for message in database_tribes_channel.history(limit=None):
+            tribe, color_hex = message.content.split(',')
+            if tribe == tribe_name:
+                return discord.Color(int(color_hex.lstrip('#'), 16))
+        return discord.Color.default()
+
 
     def create_embeds_for_players(self, tribes_dict, advantages_dict, tribe_colors):
         embeds = []
@@ -248,6 +291,25 @@ class PlayerManagement(commands.Cog):
         current_channel_name = interaction.channel.name.lower()
         player_game_channel = discord.utils.get(interaction.guild.text_channels, name=player_game_channel_name)
         return current_channel_name == player_game_channel_name, player_game_channel
+
+    async def find_idol_in_tribe(self, guild, tribe):
+        idols = await self.fetch_idols(guild)
+        for idol_name, idol_tribe, idol_image_url, found in idols:
+            if idol_tribe == tribe and found.lower() == 'false':
+                return idol_name, idol_image_url
+        return None, None
+
+    async def update_idol_status(self, guild, idol_name, status):
+        database_idol_channel = guild.get_channel(database_idol_channel_id)
+        messages = []
+        async for message in database_idol_channel.history(limit=None):
+            if message.content.startswith(f"{idol_name},"):
+                messages.append(message)
+
+        if messages:
+            idol_details = messages[0].content.split(',')
+            idol_details[3] = str(status).lower()
+            await messages[0].edit(content=','.join(idol_details))
 
     @app_commands.command(name="players", description="מציג רשימה של כל השחקנים והשבטים שלהם.")
     @commands.has_role('Host')
@@ -495,107 +557,68 @@ class PlayerManagement(commands.Cog):
     @app_commands.command(name="find_idol", description="מחפש את האליל בשבט שלך.")
     async def find_idol(self, interaction: discord.Interaction):
         user_name = interaction.user.display_name
-        user_private_channel = [f"{user_name}-משחק"]
 
-        # Convert to lowercase for comparison
-        current_channel_name = interaction.channel.name.lower()
-        expected_private_channels = [channel.lower() for channel in user_private_channel]
-
-        # Check if the command is used in one of the private channels
-        if current_channel_name not in expected_private_channels:
+        in_correct_channel, _ = await self.is_in_correct_channel(interaction)
+        if not in_correct_channel:
             embed = discord.Embed(
-                    title=f"",
-                    description=f"הפקודה עובדת רק בערוץ המשחק",
-                    color=discord.Color.red()
-                )
+                title="שגיאה",
+                description="הפקודה עובדת רק בערוץ המשחק",
+                color=discord.Color.red()
+            )
             await interaction.response.send_message(embed=embed, ephemeral=False)
             return
 
-        # Read player's tribe from players.csv
-        user_tribe = None
-        with open('players.csv', 'r', newline='') as csvfile:
-            reader = csv.reader(csvfile)
-            for row in reader:
-                if row[1] == user_name:
-                    user_tribe = row[2]
-                    break
-
+        user_tribe = await self.get_player_tribe(interaction.guild, user_name)
         if not user_tribe:
             await interaction.response.send_message("שגיאה: לא נמצא שבט לשחקן.", ephemeral=True)
             return
 
-        class IdolModal(discord.ui.Modal):
-            def __init__(self):
-                super().__init__(title="מצא אליל")
-                self.idol_name = discord.ui.TextInput(label="שם האליל", placeholder="הכנס את שם האליל", min_length=1,
-                                                      max_length=50)
-                self.add_item(self.idol_name)
+        class IdolGuessModal(discord.ui.Modal):
+            idol_name = discord.ui.TextInput(label="נחש את שם האליל", placeholder="הזן את שם האליל", required=True)
+
+            def __init__(self, cog, interaction, user_name, user_tribe):
+                super().__init__(title="נחש את שם האליל")
+                self.cog = cog
+                self.interaction = interaction
+                self.user_name = user_name
+                self.user_tribe = user_tribe
 
             async def on_submit(self, modal_interaction: discord.Interaction):
-                idol_name = self.idol_name.value.strip()
+                idol_name = self.idol_name.value
 
-                # Check if the idol exists in idols.csv
-                idol_found = False
-                idol_row_index = None
-                idols_data = []
-                with open('idols.csv', 'r', newline='') as csvfile:
-                    reader = csv.reader(csvfile)
-                    idols_data = list(reader)
-                    for index, row in enumerate(idols_data):
-                        if row[0] == idol_name and row[1] == user_tribe and row[2] == '0':
-                            idol_found = True
-                            idol_row_index = index
-                            break
-
-                if idol_found:
-                    # Update the idol's status to found
-                    idols_data[idol_row_index][2] = '1'
-                    with open('idols.csv', 'w', newline='') as csvfile:
-                        writer = csv.writer(csvfile)
-                        writer.writerows(idols_data)
-
-                    # Add the idol to the user's advantages
-                    advantage_added = False
-                    advantages_data = []
-                    with open('advantages.csv', 'r', newline='') as csvfile:
-                        reader = csv.reader(csvfile)
-                        advantages_data = list(reader)
-                        for row in advantages_data:
-                            if row[0] == user_name and row[1] == 'פסלון':
-                                row[2] = str(int(row[2]) + 1)
-                                advantage_added = True
-                        if not advantage_added:
-                            advantages_data.append([user_name, 'פסלון', '1'])
-
-                    with open('advantages.csv', 'w', newline='') as csvfile:
-                        writer = csv.writer(csvfile)
-                        writer.writerows(advantages_data)
+                idol_name_correct, idol_image = await self.cog.find_idol_in_tribe(modal_interaction.guild, self.user_tribe)
+                idol_image_url = f"attachment://{idol_image}"
+                if idol_name_correct and idol_name_correct.lower() == idol_name.lower():
+                    await self.cog.update_idol_status(modal_interaction.guild, idol_name_correct, True)
+                    await self.cog.add_advantage_to_channel(modal_interaction.guild, self.user_name, idol_name_correct, "1")
 
                     embed = discord.Embed(
-                    title=f"",
-                    description=f"מצאת את האליל {idol_name}! האליל נוסף ליתרונות שלך",
-                    color=discord.Color.yellow()
+                        title="אליל נמצא!",
+                        description=f"מצאת את האליל {idol_name_correct} מהשבט {self.user_tribe}.",
+                        color=discord.Color.green()
                     )
-                    await modal_interaction.response.send_message(embed=embed, ephemeral=False)
+                    embed.set_image(url=idol_image_url)
 
-                    # Log the finding of the idol
-                    log_channel = interaction.guild.get_channel(log_channel_id)
+                    # Send a log message
+                    log_channel = modal_interaction.guild.get_channel(log_channel_id)
                     if log_channel:
-                        embed = discord.Embed(
-                        title=f"",
-                        description=f"מצא את האליל {idol_name} בשבט {user_tribe} {user_name}",
-                        color=discord.Color.yellow()
+                        log_embed = discord.Embed(
+                            title="אליל נמצא",
+                            description=f"{self.user_name} מצא את האליל {idol_name_correct} מהשבט {self.user_tribe}.",
+                            color=discord.Color.green()
                         )
-                        await log_channel.send(embed=embed)
+                        log_embed.set_image(url=idol_image_url)
+                        await log_channel.send(embed=log_embed)
                 else:
                     embed = discord.Embed(
-                    title=f"",
-                    description=f"השם אינו נכון, או שהאליל כבר נמצא על ידי מתמודד אחר",
-                    color=discord.Color.red()
+                        title="ניסיון נכשל",
+                        description="לא הצלחת למצוא את האליל.",
+                        color=discord.Color.red()
                     )
-                    await modal_interaction.response.send_message(embed=embed,ephemeral=False)
+                await modal_interaction.response.send_message(embed=embed, ephemeral=False)
 
-        await interaction.response.send_modal(IdolModal())
+        modal = IdolGuessModal(self, interaction, user_name, user_tribe)
+        await interaction.response.send_modal(modal)
 
     @app_commands.command(name="commands", description="מציג רשימת פקודות לשחקנים")
     async def show_commands(self, interaction: discord.Interaction):
@@ -974,6 +997,54 @@ class PlayerManagement(commands.Cog):
             await interaction.response.send_message("בחר שחקן:", view=discord.ui.View().add_item(PlayerSelect(players)))
         else:
             await interaction.response.send_message("אין שחקנים זמינים.")
+
+    @app_commands.command(name="add_idol", description="מוסיף אליל למאגר")
+    @app_commands.describe(idol_name="שם האליל", idol_tribe="השבט של האליל")
+    async def add_idol(self, interaction: discord.Interaction, idol_name: str, idol_tribe: str):
+        class IdolImageModal(discord.ui.Modal):
+            idol_image_url = discord.ui.TextInput(label="נתיב לתמונת האליל", placeholder="הזן את הנתיב לתמונת האליל",
+                                                  required=True)
+
+            def __init__(self, cog, interaction, idol_name, idol_tribe):
+                super().__init__(title="הזן את נתיב לתמונת האליל")
+                self.cog = cog
+                self.interaction = interaction
+                self.idol_name = idol_name
+                self.idol_tribe = idol_tribe
+
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                idol_image_path = self.idol_image_url.value
+                found = False
+
+                # Read the image file
+                try:
+                    file = discord.File(idol_image_path, filename="idol_image.png")
+                except FileNotFoundError:
+                    await modal_interaction.response.send_message("הקובץ לא נמצא. אנא נסה שוב.", ephemeral=True)
+                    return
+
+                idol_image_url = "attachment://idol_image.png"
+
+                await self.cog.add_idol_to_channel(modal_interaction.guild, self.idol_name, self.idol_tribe,
+                                                   idol_image_path, found)
+
+                tribe_color = await self.cog.get_tribe_color_by_name(modal_interaction.guild, self.idol_tribe)
+
+                embed = discord.Embed(
+                    title="האליל נוסף",
+                    description=f"אליל בשם {self.idol_name} מהשבט {self.idol_tribe} נוסף בהצלחה.",
+                    color=tribe_color
+                )
+                embed.set_image(url=idol_image_url)
+                await modal_interaction.response.send_message(file=file, embed=embed, ephemeral=True)
+
+                log_channel = modal_interaction.guild.get_channel(log_channel_id)
+                if log_channel:
+                    await log_channel.send(embed=embed)
+
+        modal = IdolImageModal(self, interaction, idol_name, idol_tribe)
+        await interaction.response.send_modal(modal)
+
 
 async def setup(bot):
     await bot.add_cog(PlayerManagement(bot))
