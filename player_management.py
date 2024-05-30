@@ -87,14 +87,16 @@ class PlayerManagement(commands.Cog):
                 return discord.Color(int(color_hex.lstrip('#'), 16))
         return discord.Color.default()
 
-    def create_embeds_for_players(self, tribes_dict, advantages_dict, tribe_colors):
+    def create_embeds_for_players(self, tribes_dict, advantages_dict, chips_dict, tribe_colors):
         embeds = []
         for tribe, players in tribes_dict.items():
             player_list = ""
             for index, (user_id, player_name) in enumerate(players, start=1):
                 advantages = advantages_dict.get(player_name, [])  # Match by player name
-                advantages_str = ", ".join([f"{adv} ({amt})" for adv, amt in advantages])
-                player_list += f"{index}. {player_name} - {advantages_str if advantages_str else 'אין יתרונות'}\n"
+                chips = chips_dict.get(player_name, []) # Match by player name
+                advantages_str = ", ".join([f"{adv}" for adv in advantages])
+                chips_str = ",".join(f"{amt}" for amt in chips)
+                player_list += f"{index}. {player_name}: \n צ'יפים: {chips_str} \n יתרונות: {advantages_str if advantages_str else 'אין יתרונות'}\n"
 
             embed = discord.Embed(
                 title=f"שבט {tribe}",
@@ -114,8 +116,12 @@ class PlayerManagement(commands.Cog):
     async def fetch_advantages_data(self, guild):
         advantages = await self.fetch_advantages(guild)
         advantages_dict = defaultdict(list)
-        for player_name, advantage_name, amount in advantages:
-            advantages_dict[player_name.strip()].append((advantage_name.strip(), amount.strip()))
+
+        for i in range(len(advantages)):
+            if len(advantages[i])>1: # Checks if the players have advantages
+                player_name = advantages[i].pop(0) # Remove player name so it can iterate on the advantages
+                for advantage_name in advantages[i]:
+                    advantages_dict[player_name.strip()].append(advantage_name.strip())
         return advantages_dict
 
     async def get_player_roles_and_tribes(self, guild):
@@ -138,7 +144,7 @@ class PlayerManagement(commands.Cog):
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name, overwrites={
-                guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channels=False)
+                guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False)
             })
 
         alliance_text_channel = discord.utils.get(guild.text_channels, name=alliance_name)
@@ -191,6 +197,13 @@ class PlayerManagement(commands.Cog):
         async for message in database_chips_channel.history(limit=None):
             chips.append(message.content.split(','))
         return chips
+
+    async def fetch_chips_data(self, guild):
+        chips = await self.fetch_chips(guild)
+        chips_dict = defaultdict(list)
+        for player_name, amount in chips:
+            chips_dict[player_name.strip()].append(amount.strip())
+        return chips_dict
     
     async def get_player_chips(self, player_name, guild):
         chips = await self.fetch_chips(guild)
@@ -229,7 +242,7 @@ class PlayerManagement(commands.Cog):
         # confirmation to transferring player
         embed = discord.Embed(
             title="",
-            description=f"העברת {amount} {"צ'יפים"} ל {target_player}\nנשארו לך {new_amount_user} צ'יפים",
+            description=f"העברת {amount} צ'יפים ל{target_player}\n נשארו לך {new_amount_user} צ'יפים",
             color=await self.get_player_tribe_color(interaction.guild, user_name)
         )
         file = discord.File("chips.png", filename="chips.png")
@@ -242,7 +255,7 @@ class PlayerManagement(commands.Cog):
         if target_channel:
             embed = discord.Embed(
                 title="מזל טוב!",
-                description=f"קיבלת {amount} {"צ'יפים"} מ-{user_name}\nעכשיו יש לך {new_amount_target} צ'יפים",
+                description=f"קיבלת {amount} צ'יפים מ{player}\n עכשיו יש לך {new_amount_target} צ'יפים",
                 color=await self.get_player_tribe_color(interaction.guild, target_player)
             )
             file = discord.File("chips.png", filename="chips.png")
@@ -397,8 +410,9 @@ class PlayerManagement(commands.Cog):
     async def players(self, interaction: discord.Interaction):
         tribes_dict = await self.fetch_player_data(interaction.guild)
         advantages_dict = await self.fetch_advantages_data(interaction.guild)
+        chips_dict = await self.fetch_chips_data(interaction.guild)
         tribe_colors = await self.get_tribe_colors(interaction.guild)
-        embeds = self.create_embeds_for_players(tribes_dict, advantages_dict, tribe_colors)
+        embeds = self.create_embeds_for_players(tribes_dict, advantages_dict, chips_dict, tribe_colors)
 
         if embeds:
             await interaction.response.send_message(embeds=embeds)
@@ -788,7 +802,7 @@ class PlayerManagement(commands.Cog):
                         await channel.set_permissions(member, read_messages=True, send_messages=True)
                         await channel.set_permissions(select_interaction.guild.default_role, read_messages=False)
 
-                    await select_interaction.followup.send(f"השחקן {player_name} נוסף בהצלחה לשבט {tribe_name}.")
+                    await select_interaction.followup.send(f"השחקן {player_name} נוסף בהצלחה לשבט {tribe_name}.", ephemeral=True)
 
                     # Log the addition of the player
                     log_channel = select_interaction.guild.get_channel(log_channel_id)
@@ -818,13 +832,33 @@ class PlayerManagement(commands.Cog):
     @commands.has_role('Host')
     async def change_tribe(self, interaction: discord.Interaction, player_name: str, tribe_name: str):
         database_players_channel = interaction.guild.get_channel(database_players_channel_id)
+        old_tribe = ""
+        user = None
         async for message in database_players_channel.history(limit=None):
             if player_name in message.content:
                 player_data = message.content.split(',')
                 if player_data[1].lower() != player_name.lower():
                     continue
+                old_tribe = player_data[2]
                 player_data[2] = tribe_name
                 await message.edit(content=','.join(player_data))
+
+                # Fetch the user by their ID
+                user_id = int(player_data[0])
+                user = interaction.guild.get_member(user_id)
+
+        if user:
+            # Get the current tribe roles and the new tribe role
+            current_roles = [role for role in user.roles if old_tribe in role.name]
+            new_tribe_role = discord.utils.get(interaction.guild.roles, name=tribe_name)
+
+            # Remove current tribe roles
+            if current_roles:
+                await user.remove_roles(*current_roles)
+
+            # Add the new tribe role
+            if new_tribe_role:
+                await user.add_roles(new_tribe_role)
 
         embed = discord.Embed(
             title="מעבר שבט",
