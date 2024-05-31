@@ -31,13 +31,18 @@ class PlayerManagement(commands.Cog):
         player_game_channel = discord.utils.get(interaction.guild.text_channels, name=player_game_channel_name)
         return current_channel_name == player_game_channel_name, player_game_channel
 
-    async def get_player_roles_and_tribes(self, guild):
-        players = await self.fetch_players(guild)
-        players_roles = {player_name: player_name for user_id, player_name, tribe_name in players}
-        players_tribes = {player_name: tribe_name for user_id, player_name, tribe_name in players}
-        return players_roles, players_tribes
+    async def check_alliance_duplicates(self, guild, selected_players):
+        data = await self.fetch_players(guild)
+        player_list = [player[1] for player in data]
+        alliance_categories = [category for category in guild.categories if 'בריתות' in category.name]
+        for category in alliance_categories:
+            for channel in category.text_channels:
+                alliance_members = [member.display_name for member in channel.members if member.display_name in player_list]
+                if set(alliance_members) == set(selected_players):
+                    return channel
+        return False
 
-    async def create_alliance_channels(self, guild, category_name, alliance_name, selected_players_roles):
+    async def create_alliance_channels(self, guild, category_name, alliance_name, selected_players):
         category = discord.utils.get(guild.categories, name=category_name)
         if not category:
             category = await guild.create_category(category_name, overwrites={
@@ -56,8 +61,8 @@ class PlayerManagement(commands.Cog):
                 guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=False)
             })
 
-        for role_name in selected_players_roles:
-            role = discord.utils.get(guild.roles, name=role_name)
+        for player_name in selected_players:
+            role = discord.utils.get(guild.roles, name=player_name)
             if role:
                 await alliance_text_channel.set_permissions(role, read_messages=True, send_messages=True)
                 await alliance_voice_channel.set_permissions(role, connect=True, speak=True, view_channel=True)
@@ -98,6 +103,16 @@ class PlayerManagement(commands.Cog):
         players_data = {row[1]: row[2] for row in players}
         members_list = [player for player, tribe in players_data.items() if tribe == tribe_name]
         return members_list
+
+    async def is_tribe_overlap(self, guild, players_list):
+        data = await self.fetch_players(guild)
+        # filter data of selected players
+        relevant_data = [row for row in data if any(player_name in row for player_name in players_list)]
+        # create set of tribes and check amount of unique tribes
+        relevant_tribes = {row[2] for row in relevant_data} 
+        if len(relevant_tribes) == 1:
+            return relevant_tribes.pop()
+        else: return False
 
     # Get player data
 
@@ -408,27 +423,32 @@ class PlayerManagement(commands.Cog):
                 member = select_interaction.user
                 selected_players.append(member.display_name)
 
+                # set alliance name
                 if not alliance_name:
                     alliance_name_generated = "-".join(selected_players)
                 else:
                     alliance_name_generated = alliance_name
 
-                players_roles, players_tribes = await self.cog.get_player_roles_and_tribes(guild)
-
-                selected_players_roles = [players_roles.get(player) for player in selected_players if player in players_roles]
-                selected_players_tribes = [players_tribes.get(player) for player in selected_players if player in players_tribes]
-
-                if not selected_players_roles or len(selected_players_roles) != len(selected_players):
+                # check that selection is valid (why?)
+                if not selected_players:
                     await select_interaction.followup.send("אחד או יותר מהשחקנים שנבחרו אינם תקפים.", ephemeral=True)
                     return
 
-                if all(tribe == selected_players_tribes[0] for tribe in selected_players_tribes):
-                    category_name = f"{selected_players_tribes[0]} - בריתות"
+                # set alliance category
+                common_tribe =  await self.cog.is_tribe_overlap(guild, selected_players)
+                if common_tribe:
+                    category_name = f"{common_tribe} - בריתות"
                 else:
                     category_name = "בריתות בין שבטיות"
 
-                alliance_name_final = await self.cog.create_alliance_channels(guild, category_name, alliance_name_generated, selected_players_roles)
+                # check for duplicates
+                duplicate = await self.cog.check_alliance_duplicates(guild, selected_players)
+                if  duplicate:
+                    await select_interaction.followup.send(f"כבר קיים ערוץ ברית לקבוצת השחקנים שבחרת בשם {duplicate.mention}", ephemeral=True)
+                    return
 
+                # create alliance
+                alliance_name_final = await self.cog.create_alliance_channels(guild, category_name, alliance_name_generated, selected_players)
                 embed = discord.Embed(
                     title="הברית נוצרה",
                     description=f"הברית {alliance_name_final} נוצרה בהצלחה.",
@@ -449,7 +469,7 @@ class PlayerManagement(commands.Cog):
                 self.add_item(PlayerSelect(players, cog, original_interaction))
 
         players = await self.fetch_players(interaction.guild)
-        player_names = [player_name for _, player_name, _ in players if player_name != interaction.user.display_name]
+        player_names = [player[1] for player in players if player[1] != interaction.user.display_name]
 
         if player_names:
             view = PlayerSelectView(player_names, self, interaction)
