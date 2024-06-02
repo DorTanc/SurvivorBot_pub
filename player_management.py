@@ -1,11 +1,12 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import csv
 import os
 from typing import Optional
 from collections import defaultdict
 import logging
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -826,6 +827,42 @@ class PlayerManagement(commands.Cog):
 
         await interaction.response.send_modal(IdolGuess(find_idol_callback))
 
+    @app_commands.command(name="parchment", description="מכין פתק להדחה")
+    async def parchment(self, interaction: discord.Interaction):
+        user = interaction.user.display_name
+        tribe = await self.get_player_tribe(interaction.guild, user)
+        players_list = await self.get_tribe_members(interaction.guild, tribe)
+        players_list.remove(user)
+
+        # define what happens upon selection
+        async def parchment_callback(select_interaction: discord.Interaction, selected_player):
+            # Load an image
+            image = Image.open('parchment.png')
+            draw = ImageDraw.Draw(image)
+            # Define a font and size
+            font = ImageFont.truetype('arial.ttf', 80)
+            # Get the size of the image
+            image_width, image_height = image.size
+            # Get the bounding box of the text
+            text_bbox = draw.textbbox((0, 0), selected_player, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            # Calculate the position
+            text_x = (image_width - text_width) // 2
+            text_y = (image_height - text_height) // 2
+            text_position = (text_x, text_y)
+            # Add text to the image
+            draw.text(text_position, selected_player, font=font, fill="black")
+            # Save the image to a BytesIO object
+            with io.BytesIO() as image_binary:
+                image.save(image_binary, 'PNG')
+                image_binary.seek(0)
+                await select_interaction.response.send_message(file=discord.File(fp=image_binary, filename='parchment_with_text.png'))
+        
+        view = discord.ui.View()
+        view.add_item(PlayerSelect(players_list, parchment_callback))
+        await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=False)
+
     @app_commands.command(name="commands", description="מציג רשימת פקודות לשחקנים")
     async def show_commands(self, interaction: discord.Interaction):
         embed = discord.Embed(
@@ -1108,7 +1145,7 @@ class PlayerManagement(commands.Cog):
             await interaction.response.send_message("בחר שחקן שיקבל את היתרון:", view=view, ephemeral=True)
         else:
             await interaction.response.send_message("אין שחקנים זמינים.", ephemeral=True)
-    
+
     @app_commands.command(name="retire_advantage", description="מוריד יתרון לשחקן אחרי שהשתמש בו")
     @commands.has_role('Host')
     async def retire_advantage(self, interaction: discord.Interaction):
@@ -1173,7 +1210,7 @@ class PlayerManagement(commands.Cog):
         else:
             await interaction.response.send_message("אין שחקנים זמינים.", ephemeral=True)
 
-    @app_commands.command(name="expel", description="פותח חלון לבחירת שחקן להדחה ואז חלון נוסף לבחירת תפקיד חדש (מודח או מושבע).")
+    @app_commands.command(name="expel", description="מוציא שחקן שהודח מהמשחק")
     @commands.has_role('Host')
     async def expel(self, interaction: discord.Interaction):
         players = await self.fetch_players(interaction.guild)
@@ -1301,7 +1338,7 @@ class PlayerManagement(commands.Cog):
         embed.add_field(name="/add_chips", value="\u202Bמוסיף צ'יפים לשחקן", inline=False)
         embed.add_field(name="/give_advantage", value="\u202Bמוסיף יתרון לשחקן", inline=False)
         embed.add_field(name="/retire_advantage", value="\u202Bמוריד יתרון לשחקן אחרי שהשתמש בו", inline=False)
-        embed.add_field(name="/expel", value="\u202Bפותח חלון לבחירת שחקן להדחה ואז חלון נוסף לבחירת תפקיד חדש (מודח או מושבע).", inline=False)
+        embed.add_field(name="/expel", value="\u202Bמוציא שחקן שהודח מהמשחק", inline=False)
         
         await interaction.response.send_message(embed=embed)
 
