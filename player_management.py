@@ -7,6 +7,8 @@ from collections import defaultdict
 import logging
 from PIL import Image, ImageDraw, ImageFont
 import io
+import arabic_reshaper
+from bidi.algorithm import get_display
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -106,6 +108,50 @@ class IdolGuess(discord.ui.Modal):
     async def on_submit(self, modal_interaction: discord.Interaction):
         guessed_name = self.guessed_name.value
         await self.dynamic_callback(modal_interaction, guessed_name)
+
+class IdolClues(discord.ui.Modal):
+    clue1 = discord.ui.TextInput(label="1 קובץ התמונה של רמז", placeholder="הזן את שם הקובץ (כולל סיומת)", required=True)
+    clue2 = discord.ui.TextInput(label="2 קובץ התמונה של רמז", placeholder="הזן את שם הקובץ (כולל סיומת)", required=True)
+    clue3 = discord.ui.TextInput(label="3 קובץ התמונה של רמז", placeholder="הזן את שם הקובץ (כולל סיומת)", required=True)
+    clue4 = discord.ui.TextInput(label="4 קובץ התמונה של רמז", placeholder="הזן את שם הקובץ (כולל סיומת)", required=False)
+    clue5 = discord.ui.TextInput(label="5 קובץ התמונה של רמז", placeholder="הזן את שם הקובץ (כולל סיומת)", required=False)
+    def __init__(self, callback):
+        self.dynamic_callback = callback
+        super().__init__(title="הוסף לפחות 3 רמזים לאליל")
+
+    async def on_submit(self, modal_interaction: discord.Interaction):
+        clues = [self.clue1.value, self.clue2.value, self.clue3.value, self.clue4.value, self.clue5.value]
+        await self.dynamic_callback(modal_interaction, clues)
+
+class Parchment(discord.ui.Modal):
+    font_name = discord.ui.TextInput(label="פונט", placeholder="(באנגלית) הזן את שם הפונט", required=False)
+    font_size = discord.ui.TextInput(label="גודל הטקסט", placeholder="הזן את גודל הטקסט", required=False)
+    font_color = discord.ui.TextInput(label="צבע הטקסט", placeholder="הזן את צבע הטקסט (באנגלית)", required=False)
+    caption = discord.ui.TextInput(label="טקסט נוסף", placeholder="הזן טקסט נוסף שיופיע מתחת לשם", required=False)
+    def __init__(self, callback):
+        self.dynamic_callback = callback
+        super().__init__(title="עצב את הפתק שלך")
+
+    async def on_submit(self, modal_interaction: discord.Interaction):
+        if not self.font_name.value:
+            font_name = "arial"
+        else: font_name = self.font_name.value.lower()
+        try:
+            font_size = int(self.font_size.value)
+        except ValueError:
+            font_size = 80  
+        if font_size < 20:
+            font_size = 20
+        if font_size > 80:
+            font_size = 80
+        if self.font_color.value.lower() not in ["black","white","red","yellow","blue","green","purple","pink","orange","brown","grey"]:
+            font_color = "black"
+        else: font_color = self.font_color.value.lower()
+        if self.caption.value:
+            # Reshape and convert RTL text to the correct display order
+            caption = arabic_reshaper.reshape(self.caption.value)
+            caption = get_display(caption)
+        await self.dynamic_callback(modal_interaction, font_name, font_size, font_color, caption)
 
 class PlayerManagement(commands.Cog):
     def __init__(self, bot):
@@ -836,29 +882,52 @@ class PlayerManagement(commands.Cog):
 
         # define what happens upon selection
         async def parchment_callback(select_interaction: discord.Interaction, selected_player):
-            # Load an image
-            image = Image.open('parchment.png')
-            draw = ImageDraw.Draw(image)
-            # Define a font and size
-            font = ImageFont.truetype('arial.ttf', 80)
-            # Get the size of the image
-            image_width, image_height = image.size
-            # Get the bounding box of the text
-            text_bbox = draw.textbbox((0, 0), selected_player, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            text_height = text_bbox[3] - text_bbox[1]
-            # Calculate the position
-            text_x = (image_width - text_width) // 2
-            text_y = (image_height - text_height) // 2
-            text_position = (text_x, text_y)
-            # Add text to the image
-            draw.text(text_position, selected_player, font=font, fill="black")
-            # Save the image to a BytesIO object
-            with io.BytesIO() as image_binary:
-                image.save(image_binary, 'PNG')
-                image_binary.seek(0)
-                await select_interaction.response.send_message(file=discord.File(fp=image_binary, filename='parchment_with_text.png'))
-        
+
+            # define what happens upon submission
+            async def parchment_callback2(modal_interaction: discord.Interaction, font_name, font_size, font_color, caption):
+                # Load an image
+                image = Image.open('parchment.png')
+                draw = ImageDraw.Draw(image)
+                # Try to use the specified font, fallback to Arial if it fails
+                try:
+                    font = ImageFont.truetype(f"{font_name}.ttf", font_size)
+                except IOError:
+                    font_name = "arial"
+                    font = ImageFont.truetype('arial.ttf', font_size)
+                # Get the size of the image
+                image_width, image_height = image.size
+                # Get the bounding box of the text
+                text_bbox = draw.textbbox((0, 0), selected_player, font=font)
+                text_width = text_bbox[2] - text_bbox[0]
+                text_height = text_bbox[3] - text_bbox[1]
+                # Calculate the position
+                text_x = (image_width - text_width) // 2
+                text_y = (image_height - text_height) // 2
+                text_position = (text_x, text_y)
+                # Reshape and convert RTL text to the correct display order
+                name = arabic_reshaper.reshape(selected_player)
+                name = get_display(name)
+                # Add text to the image
+                draw.text(text_position, name, font=font, fill=font_color)
+                if caption:
+                    caption_font = ImageFont.truetype(f"{font_name}.ttf", font_size // 2)
+                    # Get the bounding box of the caption
+                    caption_bbox = draw.textbbox((0, 0), caption, font=caption_font)
+                    caption_width = caption_bbox[2] - caption_bbox[0]
+                    # Calculate the position of caption
+                    caption_x = (image_width - caption_width) // 2
+                    caption_y = text_y + text_height + 20
+                    caption_position = (caption_x, caption_y)
+                    # Add caption to the image
+                    draw.text(caption_position, caption, font=caption_font, fill=font_color)
+                # Save the image to a BytesIO object
+                with io.BytesIO() as image_binary:
+                    image.save(image_binary, 'PNG')
+                    image_binary.seek(0)
+                    await modal_interaction.response.send_message(file=discord.File(fp=image_binary, filename='parchment_with_text.png'))
+            
+            await select_interaction.response.send_modal(Parchment(parchment_callback2))
+
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, parchment_callback))
         await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=False)
@@ -871,12 +940,13 @@ class PlayerManagement(commands.Cog):
                     color=discord.Color.from_rgb(r=255,g=255,b=255)
                 )
         embed.add_field(name="/show_players", value='\u202Bמציג רשימה של כל השחקנים', inline=False)
-        embed.add_field(name="/alliance [שם ברית]", value="\u202Bיצירת ברית חדשה, ערוץ טקסט וערוץ קול עבור הברית.", inline=False)
-        embed.add_field(name="/show_chips", value="\u202Bמציג את כמות הצ'יפים שלך.", inline=False)
-        embed.add_field(name="/transfer_chips", value="\u202Bמעביר צ'יפים לשחקן אחר.", inline=False)
-        embed.add_field(name="/transfer_advantage", value="\u202Bמעביר אליל או יתרון לשחקן אחר.", inline=False)
-        embed.add_field(name="/buy_advantage", value="\u202Bקונה יתרון מהתפריט.", inline=False)
-        embed.add_field(name="/find_idol", value="\u202Bפותח חלון לחיפוש האליל, שבו יש להזין את שם המפורסם.", inline=False)
+        embed.add_field(name="/alliance [שם ברית]", value="\u202Bיצירת ברית חדשה, ערוץ טקסט וערוץ קול עבור הברית", inline=False)
+        embed.add_field(name="/show_chips", value="\u202Bמציג את כמות הצ'יפים שלך", inline=False)
+        embed.add_field(name="/transfer_chips", value="\u202Bמעביר צ'יפים לשחקן אחר", inline=False)
+        embed.add_field(name="/transfer_advantage", value="\u202Bמעביר אליל או יתרון לשחקן אחר", inline=False)
+        embed.add_field(name="/buy_advantage", value="\u202Bקונה יתרון מהתפריט", inline=False)
+        embed.add_field(name="/find_idol", value="\u202Bפותח חלון לחיפוש האליל, שבו יש להזין את שם המפורסם", inline=False)
+        embed.add_field(name="/parchment", value="\u202Bמעצב פתק למועצת השבט", inline=False)
         
         await interaction.response.send_message(embed=embed)
 
@@ -1276,25 +1346,38 @@ class PlayerManagement(commands.Cog):
 
         # define what happens upon selection
         async def add_idol_callback(select_interaction: discord.Interaction, selected_tribe):
-            # add idol to database
-            database_idol_channel = select_interaction.guild.get_channel(database_idol_channel_id)
-            await database_idol_channel.send(f"{idol_name},{selected_tribe},{image_file},{False}")
 
-            # confirm addition
-            file = discord.File(image_file, filename=image_file)
-            embed = discord.Embed(
-                title="אליל חדש הוחבא",
-                description=f"אליל בשם {idol_name} הוחבא בהצלחה בשבט {selected_tribe}",
-                color= await self.get_tribe_color(select_interaction.guild, selected_tribe)
-            )
-            embed.set_image(url=f"attachment://{image_file}")
-            await select_interaction.response.send_message(file=file, embed=embed, ephemeral=True)
+            # define what happens upon submission
+            async def add_idol_callback2(modal_interaction: discord.Interaction, clues):
+                # add idol to database
+                database_idol_channel = modal_interaction.guild.get_channel(database_idol_channel_id)
+                await database_idol_channel.send(f"{idol_name},{selected_tribe},{image_file},{False}")
 
-            # log addition
-            log_channel = select_interaction.guild.get_channel(log_channel_id)
-            if log_channel:
-                await log_channel.send(file=file, embed=embed)
-        
+                # add clues to menu
+                clue_price = 50 # can be modified later
+                clue_amount = 20 # based on cast size, can be modified later
+                database_menu_channel = interaction.guild.get_channel(database_menu_channel_id)
+                for index, clue in enumerate(clues):
+                    if clue:
+                        await database_menu_channel.send(f"רמז {index+1} {selected_tribe},{clue_price},{clue_amount},{clue}")
+
+                # confirm addition
+                file = discord.File(image_file, filename=image_file)
+                embed = discord.Embed(
+                    title="אליל חדש הוחבא",
+                    description=f"אליל בשם {idol_name} הוחבא בהצלחה בשבט {selected_tribe}",
+                    color= await self.get_tribe_color(modal_interaction.guild, selected_tribe)
+                )
+                embed.set_image(url=f"attachment://{image_file}")
+                await modal_interaction.response.send_message(file=file, embed=embed, ephemeral=True)
+
+                # log addition
+                log_channel = modal_interaction.guild.get_channel(log_channel_id)
+                if log_channel:
+                    await log_channel.send(file=file, embed=embed)
+
+            await select_interaction.response.send_modal(IdolClues(add_idol_callback2))
+
         view = discord.ui.View()
         view.add_item(TribeSelect(tribe_list, add_idol_callback))
         await interaction.response.send_message("בחר שבט שבו יוחבא האליל:", view=view, ephemeral=True)
