@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 log_channel_id = 1243911112978858075
 database_players_channel_id = 1244238505882947626
 database_tribes_channel_id = 1244328239086829712
-database_advantages_channel_id = 1244334271615991841
-database_chips_channel_id = 1245695980058316840
 database_idol_channel_id = 1244710921482535042
 database_menu_channel_id = 1246080834184810527
 
@@ -167,8 +165,7 @@ class PlayerManagement(commands.Cog):
         return current_channel_name == player_game_channel_name, player_game_channel
 
     async def check_alliance_duplicates(self, guild, selected_players):
-        data = await self.fetch_players(guild)
-        player_list = [player[1] for player in data]
+        player_list = await self.get_players_list(guild)
         alliance_categories = [category for category in guild.categories if 'בריתות' in category.name]
         for category in alliance_categories:
             for channel in category.text_channels:
@@ -203,17 +200,6 @@ class PlayerManagement(commands.Cog):
                 await alliance_voice_channel.set_permissions(role, connect=True, speak=True, view_channel=True)
 
         return alliance_name
-
-    async def send_alliance_log(self, guild, alliance_name, selected_players):
-        log_channel = guild.get_channel(log_channel_id)
-        if log_channel:
-            players_list = ", ".join(selected_players)
-            embed = discord.Embed(
-                title="ברית נוצרה",
-                description=f"הברית {alliance_name} המכילה את {players_list} נוצרה בהצלחה.",
-                color=discord.Color.from_rgb(r=255,g=255,b=255)
-            )
-            await log_channel.send(embed=embed)
     
     # Get tribe data
 
@@ -249,35 +235,7 @@ class PlayerManagement(commands.Cog):
             return relevant_tribes.pop()
         else: return False
 
-    # Player management
-
-    async def add_player_to_database(self, guild, user_id, player_name, tribe_name):
-        database_players_channel = guild.get_channel(database_players_channel_id)
-        await database_players_channel.send(f"{user_id},{player_name},{tribe_name}")
-        database_chips_channel = guild.get_channel(database_chips_channel_id)
-        await database_chips_channel.send(f"{player_name},0")
-        database_advantages_channel = guild.get_channel(database_advantages_channel_id)
-        await database_advantages_channel.send(f"{player_name}")
-
-    async def remove_player_from_database(self, guild, player_name):
-        # Remove from player database
-        database_players_channel = guild.get_channel(database_players_channel_id)
-        async for msg in database_players_channel.history(limit=None):
-            if msg.content.split(',')[1] == player_name:
-                await msg.delete()
-                break
-        # Remove from chips database
-        database_chips_channel = guild.get_channel(database_chips_channel_id)
-        async for msg in database_chips_channel.history(limit=None):
-            if msg.content.split(',')[0] == player_name:
-                await msg.delete()
-                break
-        # Remove from advantages database
-        database_advantages_channel = guild.get_channel(database_advantages_channel_id)
-        async for msg in database_advantages_channel.history(limit=None):
-            if msg.content.split(',')[0] == player_name:
-                await msg.delete()
-                break
+    # Get player data
 
     async def fetch_players(self, guild):
         database_players_channel = guild.get_channel(database_players_channel_id)
@@ -286,24 +244,35 @@ class PlayerManagement(commands.Cog):
             players.append(message.content.split(','))
         return players
 
+    def get_player_data(self, database, player_name):
+        players_data = next((row for row in database if row[1].lower() == player_name.lower()))
+        player_dict = {
+            'user_id': players_data[0],
+            'tribe': players_data[2],
+            'chips': int(players_data[3]),
+            'advantages': players_data[4:]
+        }
+        return player_dict
+
+    async def get_player_user_id(self, guild, player_name):
+        players = await self.fetch_players(guild)
+        players_data = next((row for row in players if row[1].lower() == player_name.lower()))
+        return players_data[0]
+
     async def get_player_tribe(self, guild, player_name):
         players = await self.fetch_players(guild)
         players_data = next((row for row in players if row[1].lower() == player_name.lower()))
-        # return the tribe name (third element in the row)
         return players_data[2]
     
     async def get_player_chips(self, guild, player_name):
-        chips = await self.fetch_chips(guild)
-        player_chips = next((row for row in chips if row[0].lower() == player_name.lower()))
-        # return the number of chips (second element in the row)
-        chips_number = player_chips[1]
-        return int(chips_number)
+        chips = await self.fetch_players(guild)
+        players_data = next((row for row in chips if row[1].lower() == player_name.lower()))
+        return int(players_data[3])
     
     async def get_player_advantages(self, guild, player_name):
-        advantages = await self.fetch_advantages(guild)
-        player_advantages = next((row for row in advantages if row[0].lower() == player_name.lower()))
-        # return list of advantage names (remove first element)
-        player_advantages.pop(0)
+        advantages = await self.fetch_players(guild)
+        players_data = next((row for row in advantages if row[1].lower() == player_name.lower()))
+        player_advantages = players_data[4:]
         return player_advantages
 
     async def get_player_tribe_color(self, guild, player):
@@ -311,155 +280,66 @@ class PlayerManagement(commands.Cog):
         tribe_color = await self.get_tribe_color(guild, player_tribe)
         return tribe_color
 
-    # Chips management
+    async def get_players_list(self, guild, excluded_player=None):
+        players = await self.fetch_players(guild)
+        players_list = [player[1] for player in players]
+        if excluded_player:
+            players_list.remove(excluded_player)
+        return players_list
 
-    async def fetch_chips(self, guild):
-        database_chips_channel = guild.get_channel(database_chips_channel_id)
-        chips = []
-        async for message in database_chips_channel.history(limit=None):
-            chips.append(message.content.split(','))
-        return chips
+    # Player management
+
+    async def add_player_to_database(self, guild, user_id, player_name, tribe_name):
+        database_players_channel = guild.get_channel(database_players_channel_id)
+        await database_players_channel.send(f"{user_id},{player_name},{tribe_name},0")
+
+    async def remove_player_from_database(self, guild, player_name):
+        database_players_channel = guild.get_channel(database_players_channel_id)
+        async for msg in database_players_channel.history(limit=None):
+            if msg.content.split(',')[1] == player_name:
+                await msg.delete()
+                break
+
+    async def update_tribe(self, guild, player, new_tribe):
+        database_players_channel = guild.get_channel(database_players_channel_id)
+        # search for the corresponding message
+        async for message in database_players_channel.history(limit=None):
+            list = message.content.split(',')
+            if list[1] == player:
+                list[2] = new_tribe
+                await message.edit(content=f",".join(list))
+                break
 
     async def update_chips(self, guild, player, new_amount):
-        database_chips_channel = guild.get_channel(database_chips_channel_id)
+        database_players_channel = guild.get_channel(database_players_channel_id)
         # search for the corresponding message
-        async for msg in database_chips_channel.history(limit=None):
-            list = msg.content.split(',')
-            if list[0] == player:
-                message = msg
+        async for message in database_players_channel.history(limit=None):
+            list = message.content.split(',')
+            if list[1] == player:
+                list[3] = str(new_amount)
+                await message.edit(content=f",".join(list))
                 break
-        await message.edit(content=f"{player},{new_amount}")
-
-    async def complete_chips_transfer(self, interaction, amount, target_player):
-        user_name = interaction.user.display_name
-        user_chips = await self.get_player_chips(interaction.guild, user_name)
-        target_chips = await self.get_player_chips(interaction.guild, target_player)
-
-        new_amount_user = user_chips - amount
-        new_amount_target = target_chips + amount
-
-        # update amounts for both players
-        await self.update_chips(interaction.guild, user_name, new_amount_user)
-        await self.update_chips(interaction.guild, target_player, new_amount_target)
-
-        # confirmation to transferring player
-        embed = discord.Embed(
-            title="",
-            description=f"העברת {amount} צ'יפים ל{target_player}\n נשארו לך {new_amount_user} צ'יפים",
-            color=await self.get_player_tribe_color(interaction.guild, user_name)
-        )
-        file = discord.File("chips.png", filename="chips.png")
-        embed.set_image(url="attachment://chips.png")
-        await interaction.response.send_message(file=file, embed=embed, ephemeral=False)
-
-        # confirmation to target player
-        target_channel_name = f"{target_player.replace(' ', '-').lower()}-משחק"
-        target_channel = discord.utils.get(interaction.guild.text_channels, name=target_channel_name)
-        if target_channel:
-            embed = discord.Embed(
-                title="מזל טוב!",
-                description=f"קיבלת {amount} צ'יפים מ{user_name}\n עכשיו יש לך {new_amount_target} צ'יפים",
-                color=await self.get_player_tribe_color(interaction.guild, target_player)
-            )
-            file = discord.File("chips.png", filename="chips.png")
-            embed.set_image(url="attachment://chips.png")
-            await target_channel.send(file=file, embed=embed)
-
-        # log transfer
-        log_channel = interaction.guild.get_channel(log_channel_id)
-        if log_channel:
-            embed = discord.Embed(
-                title="",
-                description=f"{user_name} העביר {amount} צ'יפים ל {target_player}\nל {user_name} יש עכשיו {new_amount_user} צ'יפים\nל {target_player} יש עכשיו {new_amount_target} צ'יפים",
-                color=await self.get_player_tribe_color(interaction.guild, user_name)
-            )
-            file = discord.File("chips.png", filename="chips.png")
-            embed.set_image(url="attachment://chips.png")
-            await log_channel.send(file=file, embed=embed)
-
-    # Advantage management
-
-    async def fetch_advantages(self, guild):
-        database_advantages_channel = guild.get_channel(database_advantages_channel_id)
-        advantages = []
-        async for message in database_advantages_channel.history(limit=None):
-            advantages.append(message.content.split(','))
-        return advantages
 
     async def remove_advantage(self, guild, player, advantage):
-        database_advantages_channel = guild.get_channel(database_advantages_channel_id)
+        database_players_channel = guild.get_channel(database_players_channel_id)
         # search for the corresponding message
-        async for msg in database_advantages_channel.history(limit=None):
-            list = msg.content.split(',')
-            if list[0] == player:
-                message = msg
+        async for message in database_players_channel.history(limit=None):
+            list = message.content.split(',')
+            if list[1] == player:
+                list.remove(advantage)
+                await message.edit(content=f",".join(list))
                 break
-        list = message.content.split(',')
-        list.remove(advantage)
-        await message.edit(content=f",".join(list))
 
     async def add_advantage(self, guild, player, advantage):
-        database_advantages_channel = guild.get_channel(database_advantages_channel_id)
+        database_players_channel = guild.get_channel(database_players_channel_id)
         # search for the corresponding message
-        async for msg in database_advantages_channel.history(limit=None):
-            list = msg.content.split(',')
-            if list[0] == player:
-                message = msg
+        async for message in database_players_channel.history(limit=None):
+            list = message.content.split(',')
+            if list[1] == player:
+                list.append(advantage)
+                await message.edit(content=f",".join(list))
                 break
-        list = message.content.split(',')
-        list.append(advantage)
-        await message.edit(content=f",".join(list))
 
-    async def complete_advantage_transfer(self, interaction, selected_advantage, target_player):
-        user_name = interaction.user.display_name
-        filename = "advantage.png"
-        adv_type = "יתרון"
-        # check if the advantage was an idol
-        idols = await self.fetch_idols(interaction.guild)
-        is_idol = any(selected_advantage in row for row in idols)
-        if is_idol:
-            filename = await self.get_idol_image(interaction.guild, selected_advantage)
-            adv_type = "אליל"
-
-        # remove advantage from player and add it to target player
-        await self.remove_advantage(interaction.guild, user_name, selected_advantage)
-        await self.add_advantage(interaction.guild, target_player, selected_advantage)
-
-        # confirmation to transferring player
-        embed = discord.Embed(
-            title="",
-            description=f"העברת {adv_type} בשם {selected_advantage} ל {target_player}",
-            color=await self.get_player_tribe_color(interaction.guild, user_name)
-        )
-        file = discord.File(filename, filename=filename)
-        embed.set_image(url=f"attachment://{filename}")
-        await interaction.response.send_message(file=file, embed=embed, ephemeral=False)
-
-        # confirmation to target player
-        target_channel_name = f"{target_player.replace(' ', '-').lower()}-משחק"
-        target_channel = discord.utils.get(interaction.guild.text_channels, name=target_channel_name)
-        if target_channel:
-            embed = discord.Embed(
-                title="מזל טוב!",
-                description=f"קיבלת {adv_type} בשם {selected_advantage} מ-{user_name}",
-                color=await self.get_player_tribe_color(interaction.guild, target_player)
-            )
-            file = discord.File(filename, filename=filename)
-            embed.set_image(url=f"attachment://{filename}")
-            await target_channel.send(file=file, embed=embed)
-
-        # log transfer
-        log_channel = interaction.guild.get_channel(log_channel_id)
-        if log_channel:
-            embed = discord.Embed(
-                title="",
-                description=f"השחקן {user_name} העביר {adv_type} בשם {selected_advantage} ל {target_player}",
-                color=await self.get_player_tribe_color(interaction.guild, user_name)
-            )
-            file = discord.File(filename, filename=filename)
-            embed.set_image(url=f"attachment://{filename}")
-            await log_channel.send(file=file, embed=embed)
-    
     # Idol management
 
     async def fetch_idols(self, guild):
@@ -573,9 +453,8 @@ class PlayerManagement(commands.Cog):
             await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
             return
         
-        players = await self.fetch_players(interaction.guild)
         player_name = interaction.user.display_name
-        players_list = [player[1] for player in players if player[1] != player_name]
+        players_list = await self.get_players_list(interaction.guild, player_name)
 
         # define what happens upon selection
         async def create_alliance_callback(select_interaction: discord.Interaction, selected_players):
@@ -603,7 +482,7 @@ class PlayerManagement(commands.Cog):
 
             # check for duplicates
             duplicate = await self.check_alliance_duplicates(guild, selected_players)
-            if  duplicate:
+            if duplicate:
                 await select_interaction.followup.send(f"כבר קיים ערוץ ברית לקבוצת השחקנים שבחרת בשם {duplicate.mention}", ephemeral=True)
                 return
 
@@ -615,7 +494,16 @@ class PlayerManagement(commands.Cog):
                 color=await self.get_player_tribe_color(guild, player_name)
             )
             await select_interaction.followup.send(embed=embed, ephemeral=True)
-            await self.send_alliance_log(guild, alliance_name_final, selected_players)
+
+            # log alliance
+            log_channel = guild.get_channel(log_channel_id)
+            if log_channel:
+                embed = discord.Embed(
+                    title="ברית נוצרה",
+                    description=f"הברית {alliance_name} המכילה את {", ".join(selected_players)} נוצרה בהצלחה.",
+                    color=discord.Color.from_rgb(r=255,g=255,b=255)
+                )
+                await log_channel.send(embed=embed)
 
         if players_list:
             view = discord.ui.View()
@@ -678,12 +566,51 @@ class PlayerManagement(commands.Cog):
                 await modal_interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
-            players = await self.fetch_players(modal_interaction.guild)
-            players_list = [player[1] for player in players if player[1] != player_name]
+            players_list = await self.get_players_list(modal_interaction.guild, player_name)
             
             # define what happens upon selection
             async def transfer_chips_callback2(select_interaction: discord.Interaction, selected_player):
-                await self.complete_chips_transfer(select_interaction, chips_amount, selected_player)
+                # update amounts for both players
+                target_chips = await self.get_player_chips(select_interaction.guild, selected_player)
+                new_amount_user = player_chips - chips_amount
+                new_amount_target = target_chips + chips_amount
+                await self.update_chips(select_interaction.guild, player_name, new_amount_user)
+                await self.update_chips(select_interaction.guild, selected_player, new_amount_target)
+
+                # confirmation to transferring player
+                embed = discord.Embed(
+                    title="",
+                    description=f"העברת {chips_amount} צ'יפים ל{selected_player}\n נשארו לך {new_amount_user} צ'יפים",
+                    color=await self.get_player_tribe_color(select_interaction.guild, player_name)
+                )
+                file = discord.File("chips.png", filename="chips.png")
+                embed.set_image(url="attachment://chips.png")
+                await select_interaction.response.send_message(file=file, embed=embed, ephemeral=False)
+
+                # confirmation to target player
+                target_channel_name = f"{selected_player.replace(' ', '-').lower()}-משחק"
+                target_channel = discord.utils.get(select_interaction.guild.text_channels, name=target_channel_name)
+                if target_channel:
+                    embed = discord.Embed(
+                        title="מזל טוב!",
+                        description=f"קיבלת {chips_amount} צ'יפים מ{player_name}\n עכשיו יש לך {new_amount_target} צ'יפים",
+                        color=await self.get_player_tribe_color(select_interaction.guild, selected_player)
+                    )
+                    file = discord.File("chips.png", filename="chips.png")
+                    embed.set_image(url="attachment://chips.png")
+                    await target_channel.send(file=file, embed=embed)
+
+                # log transfer
+                log_channel = select_interaction.guild.get_channel(log_channel_id)
+                if log_channel:
+                    embed = discord.Embed(
+                        title="",
+                        description=f"{player_name} העביר {chips_amount} צ'יפים ל {selected_player}\nל {player_name} יש עכשיו {new_amount_user} צ'יפים\nל {selected_player} יש עכשיו {new_amount_target} צ'יפים",
+                        color=await self.get_player_tribe_color(select_interaction.guild, player_name)
+                    )
+                    file = discord.File("chips.png", filename="chips.png")
+                    embed.set_image(url="attachment://chips.png")
+                    await log_channel.send(file=file, embed=embed)
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(players_list, transfer_chips_callback2))
@@ -710,12 +637,57 @@ class PlayerManagement(commands.Cog):
         
         # define what happens upon advantage selection
         async def transfer_advantage_callback(select_interaction: discord.Interaction, selected_advantage):
-            players = await self.fetch_players(select_interaction.guild)
-            players_list = [player[1] for player in players if player[1] != user_name]
+            players_list = await self.get_players_list(select_interaction.guild, user_name)
 
             # define what happens upon player selection
             async def transfer_advantage_callback2(select_interaction: discord.Interaction, selected_player):
-                await self.complete_advantage_transfer(select_interaction, selected_advantage, selected_player)
+                filename = "advantage.png"
+                adv_type = "יתרון"
+                # check if the advantage was an idol
+                idols = await self.fetch_idols(select_interaction.guild)
+                is_idol = any(selected_advantage in row for row in idols)
+                if is_idol:
+                    filename = await self.get_idol_image(select_interaction.guild, selected_advantage)
+                    adv_type = "אליל"
+
+                # remove advantage from player and add it to target player
+                await self.remove_advantage(select_interaction.guild, user_name, selected_advantage)
+                await self.add_advantage(select_interaction.guild, selected_player, selected_advantage)
+
+                # confirmation to transferring player
+                embed = discord.Embed(
+                    title="",
+                    description=f"העברת {adv_type} בשם {selected_advantage} ל {selected_player}",
+                    color=await self.get_player_tribe_color(select_interaction.guild, user_name)
+                )
+                file = discord.File(filename, filename=filename)
+                embed.set_image(url=f"attachment://{filename}")
+                await select_interaction.response.send_message(file=file, embed=embed, ephemeral=False)
+
+                # confirmation to target player
+                target_channel_name = f"{selected_player.replace(' ', '-').lower()}-משחק"
+                target_channel = discord.utils.get(select_interaction.guild.text_channels, name=target_channel_name)
+                if target_channel:
+                    embed = discord.Embed(
+                        title="מזל טוב!",
+                        description=f"קיבלת {adv_type} בשם {selected_advantage} מ-{user_name}",
+                        color=await self.get_player_tribe_color(select_interaction.guild, selected_player)
+                    )
+                    file = discord.File(filename, filename=filename)
+                    embed.set_image(url=f"attachment://{filename}")
+                    await target_channel.send(file=file, embed=embed)
+
+                # log transfer
+                log_channel = select_interaction.guild.get_channel(log_channel_id)
+                if log_channel:
+                    embed = discord.Embed(
+                        title="",
+                        description=f"השחקן {user_name} העביר {adv_type} בשם {selected_advantage} ל {selected_player}",
+                        color=await self.get_player_tribe_color(select_interaction.guild, user_name)
+                    )
+                    file = discord.File(filename, filename=filename)
+                    embed.set_image(url=f"attachment://{filename}")
+                    await log_channel.send(file=file, embed=embed)
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(players_list, transfer_advantage_callback2))
@@ -955,6 +927,7 @@ class PlayerManagement(commands.Cog):
     @app_commands.command(name="players_data", description="מציג רשימה של כל השחקנים, מספר הצ'יפים והיתרונות שלהם.")
     @commands.has_role('Host')
     async def players_data(self, interaction: discord.Interaction):
+        database = await self.fetch_players(interaction.guild)
         tribes = await self.fetch_tribes(interaction.guild)
         tribe_list = [row[0] for row in tribes]
         embeds = []
@@ -969,9 +942,10 @@ class PlayerManagement(commands.Cog):
             )
             members = await self.get_tribe_members(interaction.guild, tribe)
             for player in members:
-                advantages = await self.get_player_advantages(interaction.guild, player)
+                data = self.get_player_data(database, player)
+                advantages = data['advantages']
                 advantages_str = ", ".join([f"{adv}" for adv in advantages])
-                chips = await self.get_player_chips(interaction.guild, player)
+                chips = data['chips']
                 embed.add_field(name=f"{player}", value=f"צ'יפים: {str(chips)}, יתרונות: {advantages_str if advantages_str else 'אין'}", inline=False)
             embeds.append(embed)
 
@@ -1051,8 +1025,7 @@ class PlayerManagement(commands.Cog):
     @app_commands.command(name="change_tribe", description="מעביר שחקן לשבט חדש")
     @commands.has_role('Host')
     async def change_tribe(self, interaction: discord.Interaction):
-        players = await self.fetch_players(interaction.guild)
-        players_list = [row[1] for row in players]
+        players_list = await self.get_players_list(interaction.guild)
 
         # define what happens upon player selection
         async def change_tribe_callback(select_interaction: discord.Interaction, selected_player):
@@ -1068,26 +1041,16 @@ class PlayerManagement(commands.Cog):
 
             # define what happens upon tribe selection
             async def change_tribe_callback2(select_interaction: discord.Interaction, selected_tribe):
-                database_players_channel = interaction.guild.get_channel(database_players_channel_id)
-                old_tribe = ""
-                user = None
-                async for message in database_players_channel.history(limit=None):
-                    if selected_player in message.content:
-                        player_data = message.content.split(',')
-                        if player_data[1].lower() != selected_player.lower():
-                            continue
-                        old_tribe = player_data[2]
-                        player_data[2] = selected_tribe
-                        await message.edit(content=','.join(player_data))
-
-                        # Fetch the user by their ID
-                        user_id = int(player_data[0])
-                        user = interaction.guild.get_member(user_id)
+                old_tribe = await self.get_player_tribe(select_interaction.guild, selected_player)
+                await self.update_tribe(select_interaction.guild, selected_player, selected_tribe)
+                # Fetch the user by their ID
+                user_id = await self.get_player_user_id(select_interaction.guild, selected_player)
+                user = interaction.guild.get_member(int(user_id))
 
                 if user:
                     # Get the current tribe roles and the new tribe role
                     current_roles = [role for role in user.roles if old_tribe in role.name]
-                    new_tribe_role = discord.utils.get(interaction.guild.roles, name=selected_tribe)
+                    new_tribe_role = discord.utils.get(select_interaction.guild.roles, name=selected_tribe)
 
                     # Remove current tribe roles
                     if current_roles:
@@ -1101,12 +1064,12 @@ class PlayerManagement(commands.Cog):
                     embed = discord.Embed(
                         title="מעבר שבט",
                         description=f"{selected_player} עבר לשבט {selected_tribe}.",
-                        color=await self.get_tribe_color(interaction.guild, selected_tribe)
+                        color=await self.get_tribe_color(select_interaction.guild, selected_tribe)
                     )
                     await select_interaction.response.send_message(embed=embed, ephemeral=True)
 
                     # log change
-                    log_channel = interaction.guild.get_channel(log_channel_id)
+                    log_channel = select_interaction.guild.get_channel(log_channel_id)
                     if log_channel:
                         await log_channel.send(embed=embed)
             
@@ -1121,8 +1084,7 @@ class PlayerManagement(commands.Cog):
     @app_commands.command(name="add_chips", description="מוסיף צ'יפים לשחקן נבחר")
     @commands.has_role('Host')
     async def add_chips(self, interaction: discord.Interaction):
-        players = await self.fetch_players(interaction.guild)
-        players_list = [row[1] for row in players]
+        players_list = await self.get_players_list(interaction.guild)
 
         # define what happens upon selection
         async def add_chips_callback(select_interaction: discord.Interaction, selected_player):
@@ -1162,19 +1124,15 @@ class PlayerManagement(commands.Cog):
 
             await select_interaction.response.send_modal(ChipsAmount(add_chips_callback2))
 
-        if players:
-            view = discord.ui.View()
-            view.add_item(PlayerSelect(players_list, add_chips_callback))
-            await interaction.response.send_message("בחר שחקן שיקבל את הצ'יפים:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("אין שחקנים זמינים.", ephemeral=True)
+        view = discord.ui.View()
+        view.add_item(PlayerSelect(players_list, add_chips_callback))
+        await interaction.response.send_message("בחר שחקן שיקבל את הצ'יפים:", view=view, ephemeral=True)
 
     @app_commands.command(name="give_advantage", description="מוסיף יתרון לשחקן נבחר")
     @app_commands.describe(advantage_name="שם היתרון")
     @commands.has_role('Host')
     async def give_advantage(self, interaction: discord.Interaction, advantage_name: str):
-        players = await self.fetch_players(interaction.guild)
-        players_list = [row[1] for row in players]
+        players_list = await self.get_players_list(interaction.guild)
 
         # define what happens upon selection
         async def give_advantage_callback(select_interaction: discord.Interaction, selected_player):
@@ -1209,18 +1167,14 @@ class PlayerManagement(commands.Cog):
                 embed.set_image(url="attachment://advantage.png")
                 await log_channel.send(file=file, embed=embed)
 
-        if players:
-            view = discord.ui.View()
-            view.add_item(PlayerSelect(players_list, give_advantage_callback))
-            await interaction.response.send_message("בחר שחקן שיקבל את היתרון:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("אין שחקנים זמינים.", ephemeral=True)
+        view = discord.ui.View()
+        view.add_item(PlayerSelect(players_list, give_advantage_callback))
+        await interaction.response.send_message("בחר שחקן שיקבל את היתרון:", view=view, ephemeral=True)
 
     @app_commands.command(name="retire_advantage", description="מוריד יתרון לשחקן אחרי שהשתמש בו")
     @commands.has_role('Host')
     async def retire_advantage(self, interaction: discord.Interaction):
-        players = await self.fetch_players(interaction.guild)
-        players_list = [row[1] for row in players]
+        players_list = await self.get_players_list(interaction.guild)
 
         # define what happens upon player selection
         async def retire_advantage_callback(select_interaction: discord.Interaction, selected_player):
@@ -1273,18 +1227,14 @@ class PlayerManagement(commands.Cog):
             view.add_item(AdvantageSelect(advantages_list, retire_advantage_callback2))
             await select_interaction.response.send_message("בחר את היתרון ששומש:", view=view, ephemeral=True)
 
-        if players:
-            view = discord.ui.View()
-            view.add_item(PlayerSelect(players_list, retire_advantage_callback))
-            await interaction.response.send_message("בחר את השחקן שהשתמש ביתרון:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("אין שחקנים זמינים.", ephemeral=True)
+        view = discord.ui.View()
+        view.add_item(PlayerSelect(players_list, retire_advantage_callback))
+        await interaction.response.send_message("בחר את השחקן שהשתמש ביתרון:", view=view, ephemeral=True)
 
     @app_commands.command(name="expel", description="מוציא שחקן שהודח מהמשחק")
     @commands.has_role('Host')
     async def expel(self, interaction: discord.Interaction):
-        players = await self.fetch_players(interaction.guild)
-        players_list = [player[1] for player in players]
+        players_list = await self.get_players_list(interaction.guild)
 
         # define what happens upon player selection
         async def expel_callback(select_interaction: discord.Interaction, selected_player):
@@ -1330,12 +1280,9 @@ class PlayerManagement(commands.Cog):
             else:
                 await select_interaction.response.send_message("שחקן לא נמצא.")
 
-        if players_list:
-            view=discord.ui.View()
-            view.add_item(PlayerSelect(players_list, expel_callback))
-            await interaction.response.send_message("בחר שחקן להדחה:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("אין שחקנים זמינים.")
+        view=discord.ui.View()
+        view.add_item(PlayerSelect(players_list, expel_callback))
+        await interaction.response.send_message("בחר שחקן להדחה:", view=view, ephemeral=True)
 
     @app_commands.command(name="add_idol", description="מחביא אליל חדש")
     @app_commands.describe(idol_name="שם האליל", image_file="קובץ התמונה של האליל")
