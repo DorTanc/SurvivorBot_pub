@@ -71,8 +71,7 @@ async def clear_commands(ctx):
 
 async def main():
     async with bot:
-        await bot.load_extension('player_management')
-        await bot.load_extension('tribe_management')
+        await bot.load_extension('commands')
         await bot.start(TOKEN)
 
 if __name__ == "__main__":
