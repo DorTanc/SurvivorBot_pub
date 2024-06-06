@@ -98,6 +98,16 @@ class ChipsAmount(discord.ui.Modal):
             return
         await self.dynamic_callback(modal_interaction, amount)
 
+class AllianceName(discord.ui.Modal):
+    alliance_name = discord.ui.TextInput(label="שם הברית", placeholder="הזן את שם הברית", required=False)
+    def __init__(self, callback):
+        self.dynamic_callback = callback
+        super().__init__(title="ברית חדשה")
+
+    async def on_submit(self, modal_interaction: discord.Interaction):
+        alliance_name = self.alliance_name.value
+        await self.dynamic_callback(modal_interaction, alliance_name)
+
 class IdolGuess(discord.ui.Modal):
     guessed_name = discord.ui.TextInput(label="נחש את שם האליל", placeholder="הזן את שם האליל", required=True)
     def __init__(self, callback):
@@ -151,6 +161,16 @@ class Parchment(discord.ui.Modal):
             caption = arabic_reshaper.reshape(self.caption.value)
             caption = get_display(caption)
         await self.dynamic_callback(modal_interaction, font_name, font_size, font_color, caption)
+
+class CommandButton(discord.ui.Button):
+    def __init__(self, style, label, emoji, row, callback):
+        self.btn_callback = callback
+        super().__init__(style=style, label=label, emoji=emoji, row=row)
+
+    async def callback(self, btn_interaction: discord.Interaction):
+        await self.btn_callback(btn_interaction)
+        if btn_interaction.message:
+            await btn_interaction.message.delete()
 
 class PlayerManagement(commands.Cog):
     def __init__(self, bot):
@@ -236,7 +256,6 @@ class PlayerManagement(commands.Cog):
             return relevant_tribes.pop()
         else: return False
 
-
     async def is_tribal(self, guild):
         database_tribals_channel = guild.get_channel(database_tribals_channel_id)
         async for message in database_tribals_channel.history(limit = None):
@@ -244,6 +263,7 @@ class PlayerManagement(commands.Cog):
             if is_in_tribal == "true":
                 return True
         return False
+    
     # Get player data
 
     async def fetch_players(self, guild):
@@ -428,12 +448,7 @@ class PlayerManagement(commands.Cog):
 
     # Player commands
 
-    @app_commands.command(name="show_players", description="מציג רשימה של כל השחקנים.")
     async def show_players(self, interaction: discord.Interaction):
-        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
-            return
         tribes = await self.fetch_tribes(interaction.guild)
         tribe_list = [row[0] for row in tribes]
         embeds = []
@@ -454,82 +469,7 @@ class PlayerManagement(commands.Cog):
 
         await interaction.followup.send(embeds=embeds)
 
-    @app_commands.command(name="alliance", description="יצירת ברית חדשה, ערוץ טקסט וערוץ קול עבור הברית.")
-    @app_commands.describe(alliance_name="שם הברית (אופציונלי)")
-    async def create_alliance(self, interaction: discord.Interaction, alliance_name: Optional[str] = None):
-        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
-            return
-        
-        player_name = interaction.user.display_name
-        players_list = await self.get_players_list(interaction.guild, player_name)
-
-        # define what happens upon selection
-        async def create_alliance_callback(select_interaction: discord.Interaction, selected_players):
-            await select_interaction.response.defer()
-            guild = select_interaction.guild
-            selected_players.append(player_name)
-
-            # set alliance name
-            if not alliance_name:
-                alliance_name_generated = "-".join(selected_players)
-            else:
-                alliance_name_generated = alliance_name
-
-            # check that selection is valid (why?)
-            if not selected_players:
-                await select_interaction.followup.send("אחד או יותר מהשחקנים שנבחרו אינם תקפים.", ephemeral=True)
-                return
-
-            # set alliance category
-            common_tribe =  await self.is_tribe_overlap(guild, selected_players)
-            if common_tribe:
-                category_name = f"{common_tribe} - בריתות"
-            else:
-                category_name = "בריתות בין שבטיות"
-
-            # check for duplicates
-            duplicate = await self.check_alliance_duplicates(guild, selected_players)
-            if duplicate:
-                await select_interaction.followup.send(f"כבר קיים ערוץ ברית לקבוצת השחקנים שבחרת בשם {duplicate.mention}", ephemeral=True)
-                return
-
-            # create alliance
-            alliance_name_final = await self.create_alliance_channels(guild, category_name, alliance_name_generated, selected_players)
-            embed = discord.Embed(
-                title="הברית נוצרה",
-                description=f"הברית {alliance_name_final} נוצרה בהצלחה.",
-                color=await self.get_player_tribe_color(guild, player_name)
-            )
-            await select_interaction.followup.send(embed=embed, ephemeral=True)
-
-            # log alliance
-            log_channel = guild.get_channel(log_channel_id)
-            if log_channel:
-                embed = discord.Embed(
-                    title="ברית נוצרה",
-                    description=f"הברית {alliance_name} המכילה את {', '.join(selected_players)} נוצרה בהצלחה.",
-                    color=discord.Color.from_rgb(r=255,g=255,b=255)
-                )
-                await log_channel.send(embed=embed)
-
-        if players_list:
-            view = discord.ui.View()
-            view.add_item(PlayerMultiSelect(players_list, create_alliance_callback))
-            await interaction.response.defer()
-            await interaction.followup.send("בחר שחקנים לברית:", view=view, ephemeral=True)
-        else:
-            await interaction.response.send_message("אין שחקנים זמינים לברית.")
-
-    @app_commands.command(name="show_chips", description=".מציג את כמות הצ'יפים שלך (זמין רק בערוץ המשחק)")
     async def show_chips(self, interaction: discord.Interaction):
-        # Check if the command is used in the player's private game channel
-        in_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not in_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
-            return
-
         # Get the player's chip
         player_display_name = interaction.user.display_name
         chips_numer = await self.get_player_chips(interaction.guild, player_display_name)
@@ -544,15 +484,71 @@ class PlayerManagement(commands.Cog):
         embed.set_image(url="attachment://chips.png")
         await interaction.response.send_message(file=file, embed=embed)
 
-    @app_commands.command(name="transfer_chips", description="מעביר צ'יפים משחקן אחד לאחר.")
+    async def create_alliance(self, interaction: discord.Interaction):
+        # define what happens upon name submission
+        async def create_alliance_callback(modal_interaction: discord.Interaction, alliance_name):
+            player_name = modal_interaction.user.display_name
+            players_list = await self.get_players_list(modal_interaction.guild, player_name)
+
+            # define what happens upon selection
+            async def create_alliance_callback2(select_interaction: discord.Interaction, selected_players):
+                await select_interaction.response.defer()
+                guild = select_interaction.guild
+                selected_players.append(player_name)
+
+                # set alliance name
+                if not alliance_name:
+                    alliance_name_generated = "-".join(selected_players)
+                else:
+                    alliance_name_generated = alliance_name
+
+                # check that selection is valid (why?)
+                if not selected_players:
+                    await select_interaction.followup.send("אחד או יותר מהשחקנים שנבחרו אינם תקפים.", ephemeral=True)
+                    return
+
+                # set alliance category
+                common_tribe =  await self.is_tribe_overlap(guild, selected_players)
+                if common_tribe:
+                    category_name = f"{common_tribe} - בריתות"
+                else:
+                    category_name = "בריתות בין שבטיות"
+
+                # check for duplicates
+                duplicate = await self.check_alliance_duplicates(guild, selected_players)
+                if duplicate:
+                    await select_interaction.followup.send(f"כבר קיים ערוץ ברית לקבוצת השחקנים שבחרת בשם {duplicate.mention}", ephemeral=True)
+                    return
+
+                # create alliance
+                alliance_name_final = await self.create_alliance_channels(guild, category_name, alliance_name_generated, selected_players)
+                embed = discord.Embed(
+                    title="הברית נוצרה",
+                    description=f"הברית {alliance_name_final} נוצרה בהצלחה.",
+                    color=await self.get_player_tribe_color(guild, player_name)
+                )
+                await select_interaction.followup.send(embed=embed, ephemeral=True)
+
+                # log alliance
+                log_channel = guild.get_channel(log_channel_id)
+                if log_channel:
+                    embed = discord.Embed(
+                        title="ברית נוצרה",
+                        description=f"הברית {alliance_name} המכילה את {', '.join(selected_players)} נוצרה בהצלחה.",
+                        color=discord.Color.from_rgb(r=255,g=255,b=255)
+                    )
+                    await log_channel.send(embed=embed)
+
+            view = discord.ui.View()
+            view.add_item(PlayerMultiSelect(players_list, create_alliance_callback2))
+            await modal_interaction.response.defer()
+            await modal_interaction.followup.send("בחר שחקנים לברית:", view=view, ephemeral=True)
+        
+        await interaction.response.send_modal(AllianceName(create_alliance_callback))
+
     async def transfer_chips(self, interaction: discord.Interaction):
         if await self.is_tribal(interaction.guild):
             await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
-            return
-
-        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
             return
 
         # check if player has any chips
@@ -631,15 +627,9 @@ class PlayerManagement(commands.Cog):
 
         await interaction.response.send_modal(ChipsAmount(transfer_chips_callback))
 
-    @app_commands.command(name="transfer_advantage", description="מעביר יתרון משחקן אחד לאחר.")
     async def transfer_advantage(self, interaction: discord.Interaction):
         if await self.is_tribal(interaction.guild):
             await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
-            return
-
-        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}",ephemeral=True)
             return
 
         user_name = interaction.user.display_name
@@ -714,15 +704,9 @@ class PlayerManagement(commands.Cog):
         view.add_item(AdvantageSelect(advantages_list, transfer_advantage_callback))
         await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=False)
 
-    @app_commands.command(name="buy_advantage", description="קונה יתרון מהתפריט.")
     async def buy_advantage(self, interaction: discord.Interaction):
         if await self.is_tribal(interaction.guild):
             await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
-            return
-
-        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
             return
         
         menu = await self.fetch_menu(interaction.guild)
@@ -810,18 +794,9 @@ class PlayerManagement(commands.Cog):
         view.add_item(AdvantageSelect(items_list, buy_advantage_callback))
         await interaction.response.send_message("בחר יתרון שברצונך לקנות:", view=view, ephemeral=False)
 
-    @app_commands.command(name="find_idol", description="מחפש את האליל בשבט שלך.")
     async def find_idol(self, interaction: discord.Interaction):
-        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
-        if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
-            return
-        
         player_name = interaction.user.display_name
         tribe = await self.get_player_tribe(interaction.guild, player_name)
-        if not tribe:
-            await interaction.response.send_message("שגיאה: לא נמצא שבט לשחקן.", ephemeral=True)
-            return
         
         # define what happens upon guess submission
         async def find_idol_callback(modal_interaction: discord.Interaction, guessed_name):
@@ -866,8 +841,7 @@ class PlayerManagement(commands.Cog):
 
         await interaction.response.send_modal(IdolGuess(find_idol_callback))
 
-    @app_commands.command(name="parchment", description="מכין פתק להדחה")
-    async def parchment(self, interaction: discord.Interaction):
+    async def create_parchment(self, interaction: discord.Interaction):
         user = interaction.user.display_name
         tribe = await self.get_player_tribe(interaction.guild, user)
         players_list = await self.get_tribe_members(interaction.guild, tribe)
@@ -925,23 +899,23 @@ class PlayerManagement(commands.Cog):
         view.add_item(PlayerSelect(players_list, parchment_callback))
         await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=False)
 
-    @app_commands.command(name="commands", description="מציג רשימת פקודות לשחקנים")
-    async def show_commands(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-                    title=f"\u202Bפקודות לשחקנים:",
-                    description=f"",
-                    color=discord.Color.from_rgb(r=255,g=255,b=255)
-                )
-        embed.add_field(name="/show_players", value='\u202Bמציג רשימה של כל השחקנים', inline=False)
-        embed.add_field(name="/alliance [שם ברית]", value="\u202Bיצירת ברית חדשה, ערוץ טקסט וערוץ קול עבור הברית", inline=False)
-        embed.add_field(name="/show_chips", value="\u202Bמציג את כמות הצ'יפים שלך", inline=False)
-        embed.add_field(name="/transfer_chips", value="\u202Bמעביר צ'יפים לשחקן אחר", inline=False)
-        embed.add_field(name="/transfer_advantage", value="\u202Bמעביר אליל או יתרון לשחקן אחר", inline=False)
-        embed.add_field(name="/buy_advantage", value="\u202Bקונה יתרון מהתפריט", inline=False)
-        embed.add_field(name="/find_idol", value="\u202Bפותח חלון לחיפוש האליל, שבו יש להזין את שם המפורסם", inline=False)
-        embed.add_field(name="/parchment", value="\u202Bמעצב פתק למועצת השבט", inline=False)
-        
-        await interaction.response.send_message(embed=embed)
+    @app_commands.command(name="command_menu", description="תפריט פקודות")
+    async def command_menu(self, interaction: discord.Interaction):
+        is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
+        if not is_correct_channel:
+            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
+            return
+        view = discord.ui.View()
+        blurple = discord.ButtonStyle.blurple
+        view.add_item(CommandButton(blurple, "רשימת שחקנים", "⛹️‍♂️", 0, self.show_players))
+        view.add_item(CommandButton(blurple, "כמות הצ'יפים שלי", "🤑", 0, self.show_chips))
+        view.add_item(CommandButton(blurple, "ברית חדשה", "🤝", 1, self.create_alliance))
+        view.add_item(CommandButton(blurple, "העברת צ'יפים", "💸", 1, self.transfer_chips))
+        view.add_item(CommandButton(blurple, "העברת יתרון", "🎁", 2, self.transfer_advantage))
+        view.add_item(CommandButton(blurple, "קניית יתרון", "🛒", 2, self.buy_advantage))
+        view.add_item(CommandButton(blurple, "חיפוש אליל", "🔍", 3, self.find_idol))
+        view.add_item(CommandButton(blurple, "פתק הצבעה", "✍", 3, self.create_parchment))
+        await interaction.response.send_message("לחץ על הפקודה הרצויה", view=view, ephemeral=True)
 
 # Host-only commands
 
