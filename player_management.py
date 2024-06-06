@@ -18,6 +18,7 @@ database_players_channel_id = 1244238505882947626
 database_tribes_channel_id = 1244328239086829712
 database_idol_channel_id = 1244710921482535042
 database_menu_channel_id = 1246080834184810527
+database_tribals_channel_id = 1248193218974056620
 
 # Custom Modal Classes
 
@@ -235,6 +236,14 @@ class PlayerManagement(commands.Cog):
             return relevant_tribes.pop()
         else: return False
 
+
+    async def is_tribal(self, guild):
+        database_tribals_channel = guild.get_channel(database_tribals_channel_id)
+        async for message in database_tribals_channel.history(limit = None):
+            tribe, is_in_tribal = message.content.split(',')
+            if is_in_tribal == "true":
+                return True
+        return False
     # Get player data
 
     async def fetch_players(self, guild):
@@ -500,7 +509,7 @@ class PlayerManagement(commands.Cog):
             if log_channel:
                 embed = discord.Embed(
                     title="ברית נוצרה",
-                    description=f"הברית {alliance_name} המכילה את {", ".join(selected_players)} נוצרה בהצלחה.",
+                    description=f"הברית {alliance_name} המכילה את {', '.join(selected_players)} נוצרה בהצלחה.",
                     color=discord.Color.from_rgb(r=255,g=255,b=255)
                 )
                 await log_channel.send(embed=embed)
@@ -537,6 +546,10 @@ class PlayerManagement(commands.Cog):
 
     @app_commands.command(name="transfer_chips", description="מעביר צ'יפים משחקן אחד לאחר.")
     async def transfer_chips(self, interaction: discord.Interaction):
+        if await self.is_tribal(interaction.guild):
+            await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
+            return
+
         is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
         if not is_correct_channel:
             await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
@@ -620,6 +633,10 @@ class PlayerManagement(commands.Cog):
 
     @app_commands.command(name="transfer_advantage", description="מעביר יתרון משחקן אחד לאחר.")
     async def transfer_advantage(self, interaction: discord.Interaction):
+        if await self.is_tribal(interaction.guild):
+            await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
+            return
+
         is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
         if not is_correct_channel:
             await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}",ephemeral=True)
@@ -699,6 +716,10 @@ class PlayerManagement(commands.Cog):
 
     @app_commands.command(name="buy_advantage", description="קונה יתרון מהתפריט.")
     async def buy_advantage(self, interaction: discord.Interaction):
+        if await self.is_tribal(interaction.guild):
+            await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
+            return
+
         is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
         if not is_correct_channel:
             await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
@@ -1351,9 +1372,52 @@ class PlayerManagement(commands.Cog):
         if log_channel:
             await log_channel.send(file=file, embed=embed)
 
+    @app_commands.command(name="set_tribal", description="מגדיר מועצת שבט לשבט מסויים")
+    @app_commands.describe(tribe_name="שם השבט")
+    @commands.has_role('Host')
+    async def set_tribal(self, interaction: discord.Interaction, tribe_name: str):
+        database_tribals_channel = interaction.guild.get_channel(database_tribals_channel_id)
+        await database_tribals_channel.send(f"{tribe_name},true")
+
+        # confirm addition
+        embed = discord.Embed(
+            title="מועצת שבט",
+            description=f"מועצת שבט הוגדרה ל{tribe_name} פקודות העברה/קנייה לא יהיו זמינות כעת.",
+            color= await self.get_tribe_color(interaction.guild, tribe_name)
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # log addition
+        log_channel = interaction.guild.get_channel(log_channel_id)
+        if log_channel:
+            await log_channel.send(embed=embed)
+
+    @app_commands.command(name="remove_tribal", description="מסיים מועצת שבט לשבט מסויים")
+    @app_commands.describe(tribe_name="שם השבט")
+    @commands.has_role('Host')
+    async def remove_tribal(self, interaction: discord.Interaction, tribe_name: str):
+        database_tribals_channel = interaction.guild.get_channel(database_tribals_channel_id)
+        async for message in database_tribals_channel.history(limit = None):
+            tribe, is_in_tribal = message.content.split(',')
+            if tribe == tribe_name and is_in_tribal == "true":
+                await message.delete()
+
+        # confirm addition
+        embed = discord.Embed(
+            title="מועצת שבט",
+            description=f"מועצת השבט של {tribe_name} הסתיימה, פקודות קנייה ורכישה יהיו זמינות כעת.",
+            color=await self.get_tribe_color(interaction.guild, tribe_name)
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        # log addition
+        log_channel = interaction.guild.get_channel(log_channel_id)
+        if log_channel:
+            await log_channel.send(embed=embed)
+
     @app_commands.command(name="host_commands", description="מציג רשימת פקודות למנהלים")
     @commands.has_role('Host')
-    async def show_hostcommands(self, interaction: discord.Interaction):
+    async def show_host_commands(self, interaction: discord.Interaction):
         embed = discord.Embed(
                     title=f"פקודות למנהלים:",
                     description=f"",
@@ -1369,6 +1433,8 @@ class PlayerManagement(commands.Cog):
         embed.add_field(name="/give_advantage", value="\u202Bמוסיף יתרון לשחקן", inline=False)
         embed.add_field(name="/retire_advantage", value="\u202Bמוריד יתרון לשחקן אחרי שהשתמש בו", inline=False)
         embed.add_field(name="/expel", value="\u202Bמוציא שחקן שהודח מהמשחק", inline=False)
+        embed.add_field(name="/set_tribal", value="\u202Bמגדיר מועצת שבט לשבט נבחר, וחוסם פקודות קנייה ומכירה", inline=False)
+        embed.add_field(name="/remove_tribal", value="\u202Bמסיים מועצת שבט לשבט נבחר, ומבטל חסימה לפקודות קנייה ומכירה", inline=False)
         
         await interaction.response.send_message(embed=embed)
 
