@@ -13,12 +13,12 @@ from bidi.algorithm import get_display
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-log_channel_id = 1243911112978858075
-database_players_channel_id = 1244238505882947626
-database_tribes_channel_id = 1244328239086829712
-database_idol_channel_id = 1244710921482535042
-database_menu_channel_id = 1246080834184810527
-database_tribals_channel_id = 1248193218974056620
+log_channel_id = 1248637078481145878
+database_players_channel_id = 1248636683784818689
+database_tribes_channel_id = 1248636758934028370
+database_idol_channel_id = 1248636824901910539
+database_menu_channel_id = 1248636904593948692
+commands_locked = False
 
 # Custom Modal Classes
 
