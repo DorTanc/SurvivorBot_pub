@@ -18,7 +18,6 @@ database_players_channel_id = 1248636683784818689
 database_tribes_channel_id = 1248636758934028370
 database_idol_channel_id = 1248636824901910539
 database_menu_channel_id = 1248636904593948692
-database_tribals_channel_id = 1248636960549896193
 commands_locked = False
 
 # Custom Modal Classes
@@ -335,14 +334,6 @@ class PlayerManagement(commands.Cog):
             return relevant_tribes.pop()
         else: return False
 
-    async def is_tribal(self, guild):
-        database_tribals_channel = guild.get_channel(database_tribals_channel_id)
-        async for message in database_tribals_channel.history(limit = None):
-            tribe, is_in_tribal = message.content.split(',')
-            if is_in_tribal == "true":
-                return True
-        return False
-    
     # Get player data
 
     async def fetch_players(self, guild):
