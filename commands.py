@@ -13,12 +13,13 @@ from bidi.algorithm import get_display
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-log_channel_id = 1243911112978858075
-database_players_channel_id = 1244238505882947626
-database_tribes_channel_id = 1244328239086829712
-database_idol_channel_id = 1244710921482535042
-database_menu_channel_id = 1246080834184810527
-database_tribals_channel_id = 1248193218974056620
+log_channel_id = 1248637078481145878
+database_players_channel_id = 1248636683784818689
+database_tribes_channel_id = 1248636758934028370
+database_idol_channel_id = 1248636824901910539
+database_menu_channel_id = 1248636904593948692
+database_tribals_channel_id = 1248636960549896193
+commands_locked = False
 
 # Custom Modal Classes
 
@@ -625,10 +626,6 @@ class PlayerManagement(commands.Cog):
         await interaction.response.send_modal(AllianceName(create_alliance_callback))
 
     async def transfer_chips(self, interaction: discord.Interaction):
-        if await self.is_tribal(interaction.guild):
-            await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
-            return
-
         # check if player has any chips
         player_name = interaction.user.display_name
         player_chips = await self.get_player_chips(interaction.guild, player_name)
@@ -706,10 +703,6 @@ class PlayerManagement(commands.Cog):
         await interaction.response.send_modal(ChipsAmount(transfer_chips_callback))
 
     async def transfer_advantage(self, interaction: discord.Interaction):
-        if await self.is_tribal(interaction.guild):
-            await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
-            return
-
         user_name = interaction.user.display_name
         advantages_list_with_clues = await self.get_player_advantages(interaction.guild, user_name)
         # filter clues since they can't be transferred
@@ -783,10 +776,6 @@ class PlayerManagement(commands.Cog):
         await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=False)
 
     async def buy_advantage(self, interaction: discord.Interaction):
-        if await self.is_tribal(interaction.guild):
-            await interaction.response.send_message("הפקודה לא עובדת בזמן מועצת שבט", ephemeral=True)
-            return
-        
         menu = await self.fetch_menu(interaction.guild)
         player_name = interaction.user.display_name
         player_tribe = await self.get_player_tribe(interaction.guild, player_name)
@@ -926,10 +915,10 @@ class PlayerManagement(commands.Cog):
         players_list.remove(user)
 
         # define what happens upon selection
-        async def parchment_callback(select_interaction: discord.Interaction, selected_player):
+        async def create_parchment_callback(select_interaction: discord.Interaction, selected_player):
 
             # define what happens upon submission
-            async def parchment_callback2(modal_interaction: discord.Interaction, font_name, font_size, font_color, caption):
+            async def create_parchment_callback2(modal_interaction: discord.Interaction, font_name, font_size, font_color, caption):
                 # Load an image
                 image = Image.open('parchment.png')
                 draw = ImageDraw.Draw(image)
@@ -971,18 +960,26 @@ class PlayerManagement(commands.Cog):
                     image_binary.seek(0)
                     await modal_interaction.response.send_message(file=discord.File(fp=image_binary, filename='parchment_with_text.png'))
             
-            await select_interaction.response.send_modal(Parchment(parchment_callback2))
+            await select_interaction.response.send_modal(Parchment(create_parchment_callback2))
 
         view = discord.ui.View()
-        view.add_item(PlayerSelect(players_list, parchment_callback))
+        view.add_item(PlayerSelect(players_list, create_parchment_callback))
         await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=False)
 
     @app_commands.command(name="command_menu", description="תפריט פקודות לשחקנים")
     async def command_menu(self, interaction: discord.Interaction):
         is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
         if not is_correct_channel:
-            await interaction.response.send_message(f"הפקודה עובדת רק בערוץ {player_game_channel.mention}", ephemeral=True)
+            embed = discord.Embed(
+            title="",description=f"הפקודות זמינות רק בערוץ {player_game_channel.mention}",color= discord.Color.red())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
+        if commands_locked:
+            embed = discord.Embed(
+            title="",description=f"באופן זמני לא ניתן להשתמש בפקודות. המנהלים יפתחו את הפקודות מחדש בקרוב.",color= discord.Color.red())
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        embed = discord.Embed(title='תפריט פקודות', description='איך אפשר לעזור לך?', color=0xffffff)
         view = discord.ui.View()
         blurple = discord.ButtonStyle.blurple
         view.add_item(CommandButton(blurple, "רשימת שחקנים", "⛹️‍♂️", 0, self.show_players))
@@ -993,7 +990,7 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(blurple, "קניית יתרון", "🛒", 2, self.buy_advantage))
         view.add_item(CommandButton(blurple, "חיפוש אליל", "🔍", 3, self.find_idol))
         view.add_item(CommandButton(blurple, "פתק הצבעה", "✍", 3, self.create_parchment))
-        await interaction.response.send_message("לחץ על הפקודה הרצויה", view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     # Host-only commands
 
@@ -1058,7 +1055,7 @@ class PlayerManagement(commands.Cog):
                     await self.add_player_to_database(select_interaction.guild, user_id, player_name, selected_tribe)
 
                     # Create or get the "ערוצים אישיים" category
-                    category_name = "ערוצים אישיים"
+                    category_name = "ערוצים אישיים 🔒"
                     category = discord.utils.get(select_interaction.guild.categories, name=category_name)
                     if not category:
                         category = await select_interaction.guild.create_category(category_name)
@@ -1085,11 +1082,11 @@ class PlayerManagement(commands.Cog):
                 except Exception as e:
                     await select_interaction.followup.send(f"שגיאה התרחשה: {str(e)}")
 
-                view = discord.ui.View()
-                view.add_item(TribeSelect(tribe_list, add_player_callback2))
-                await modal_interaction.response.send_message("בחר שבט לשחקן:", view=view)
+            view = discord.ui.View()
+            view.add_item(TribeSelect(tribe_list, add_player_callback2))
+            await modal_interaction.response.send_message("בחר שבט לשחקן:", view=view)
 
-            await interaction.response.send_modal(PlayerName(add_player_callback))
+        await interaction.response.send_modal(PlayerName(add_player_callback))
 
     async def add_tribe(self, interaction: discord.Interaction):
         # Define what happens upon name submission
@@ -1106,9 +1103,10 @@ class PlayerManagement(commands.Cog):
                 tribe_role = await select_interaction.guild.create_role(name=tribe_name, color=discord.Color.from_str(hex_code), mentionable=True)
 
                 # Create the tribe channel
-                category = discord.utils.get(select_interaction.guild.categories, name="שבטים")
+                cat_name = "ערוצים שבטיים 🚩"
+                category = discord.utils.get(select_interaction.guild.categories, name=cat_name)
                 if not category:
-                    category = await select_interaction.guild.create_category("שבטים")
+                    category = await select_interaction.guild.create_category(cat_name)
 
                 await select_interaction.guild.create_text_channel(tribe_name, category=category, overwrites={
                     select_interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
@@ -1129,7 +1127,7 @@ class PlayerManagement(commands.Cog):
                     )
                     await log_channel.send(embed=embed)
 
-                await select_interaction.response.send_message(f"השבט {tribe_name} נוסף בהצלחה עם הצבע {selected_color}.", ephemeral=False)
+                await select_interaction.response.send_message(f"השבט {tribe_name} נוסף בהצלחה עם הצבע {selected_color}.", ephemeral=True)
 
             view = discord.ui.View()
             view.add_item(ColorSelect(add_tribe_callback2))
@@ -1457,48 +1455,77 @@ class PlayerManagement(commands.Cog):
         
         await interaction.response.send_modal(NewMenuItem(add_menu_item_callback))
 
-    async def set_tribal(self, interaction: discord.Interaction):
-        tribe_name = "שבט כלשהו"
-        database_tribals_channel = interaction.guild.get_channel(database_tribals_channel_id)
-        await database_tribals_channel.send(f"{tribe_name},true")
+    async def create_tribal(self, interaction: discord.Interaction):
+        category = discord.utils.get(interaction.guild.categories, name="מועצות שבט 🔥")
+        tribals = [channel for channel in category.channels if isinstance(channel, discord.TextChannel)]
+        tribal_number = len(tribals) + 1
+        tribes = await self.fetch_tribes(interaction.guild)
+        tribe_list = [row[0] for row in tribes]
 
-        # confirm addition
+        # Define what happens upon tribe selection
+        async def create_tribal_callback(select_interaction: discord.Interaction, selected_tribe):
+            tribe_role = discord.utils.get(select_interaction.guild.roles, name=selected_tribe)
+            members_num = len(await self.get_tribe_members(select_interaction.guild, selected_tribe))
+
+            # Create the tribal channel
+            tribal_channel = await select_interaction.guild.create_text_channel(f"מועצת-שבט-{tribal_number}-{selected_tribe}", 
+                category=category, overwrites={
+                select_interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                tribe_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+            })
+
+            # Add tribal messages
+            await tribal_channel.send(f"שלום שבט {tribe_role.mention} -הגעתם למועצת השבט ה {tribal_number} של המשחק!\nלפניכם פתק הצבעה, עליו תצטרכו לכתוב/לצייר את הצבעתכם. יש לשלוח את ההצבעה בערוץ המשחק שלכם עד מחר ב-22:00.\nשימו לב שאפשר לשנות הצבעה, אבל ההצבעה האחרונה שנקבל מכם עד השעה 22:00 היא זו שתיחשב.\nמחר לאורך היום נשלח לכם שאלות עליהן תצטרכו לענות, ואת התשובות הנבחרות נפרסם כאן רגע לפני הקראת הקולות\nכל פעם שנקבל קולות אנחנו נעדכן כאן בדרך הבאה: **1/{members_num}**")
+            file = discord.File("tribalgif.gif", filename="tribalgif.gif")
+            await tribal_channel.send(file=file)
+            file = discord.File("parchment.png", filename="parchment.png")
+            await tribal_channel.send(file=file)
+            await tribal_channel.send(f"**0/{members_num}**")
+
+            # Send a log message to the log channel
+            log_channel = select_interaction.guild.get_channel(log_channel_id)
+            if log_channel:
+                embed = discord.Embed(
+                    title = "מועצת שבט נפתחה",
+                    description = f"ערוץ מועצה נפתח לשבט {selected_tribe}",
+                    color = await self.get_tribe_color(select_interaction.guild, selected_tribe)
+                )
+                await log_channel.send(embed=embed)
+
+            await select_interaction.response.send_message(f"ערוץ מועצה נפתח לשבט {selected_tribe}", ephemeral=True)
+
+        view = discord.ui.View()
+        view.add_item(TribeSelect(tribe_list, create_tribal_callback))
+        await interaction.response.send_message("בחר איזה שבט הולך למועצה:", view=view, ephemeral=True)
+
+    async def lock_commands(self, interaction: discord.Interaction):
+        global commands_locked
+        if commands_locked: return
+        commands_locked = True
+        # confirm
         embed = discord.Embed(
-            title="מועצת שבט",
-            description=f"מועצת שבט הוגדרה ל{tribe_name} פקודות העברה/קנייה לא יהיו זמינות כעת.",
-            color= await self.get_tribe_color(interaction.guild, tribe_name)
+            title="",
+            description=f"כל הפקודות לשחקנים נעולות",
+            color= discord.Color.red()
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        # log addition
-        log_channel = interaction.guild.get_channel(log_channel_id)
-        if log_channel:
-            await log_channel.send(embed=embed)
-
-    async def remove_tribal(self, interaction: discord.Interaction):
-        tribe_name = "שבט כלשהו"
-        database_tribals_channel = interaction.guild.get_channel(database_tribals_channel_id)
-        async for message in database_tribals_channel.history(limit = None):
-            tribe, is_in_tribal = message.content.split(',')
-            if tribe == tribe_name and is_in_tribal == "true":
-                await message.delete()
-
-        # confirm addition
+    async def unlock_commands(self, interaction: discord.Interaction):
+        global commands_locked
+        if not commands_locked: return
+        commands_locked = False
+        # confirm
         embed = discord.Embed(
-            title="מועצת שבט",
-            description=f"מועצת השבט של {tribe_name} הסתיימה, פקודות קנייה ורכישה יהיו זמינות כעת.",
-            color=await self.get_tribe_color(interaction.guild, tribe_name)
+            title="",
+            description=f"כל הפקודות לשחקנים זמינות",
+            color= discord.Color.default()
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        # log addition
-        log_channel = interaction.guild.get_channel(log_channel_id)
-        if log_channel:
-            await log_channel.send(embed=embed)
 
     @app_commands.command(name="host_command_menu", description="תפריט פקודות למנהלים")
     @commands.has_role('Host')
     async def host_command_menu(self, interaction: discord.Interaction):
+        embed = discord.Embed(title='תפריט פקודות', description='איך אפשר לעזור לך?', color=0xffffff)
         view = discord.ui.View()
         blurple = discord.ButtonStyle.blurple
         green = discord.ButtonStyle.green
@@ -1513,9 +1540,10 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(blurple, "הוסף יתרון", "🎁", 2, self.give_advantage))
         view.add_item(CommandButton(red, "הסר יתרון", "➖", 3, self.retire_advantage))
         view.add_item(CommandButton(red, "הסר שחקן", "💀", 3, self.expel))
-        view.add_item(CommandButton(blurple, "נעל פקודות", "🔒", 4, self.set_tribal))
-        view.add_item(CommandButton(blurple, "פתח פקודות", "🔓", 4, self.remove_tribal))
-        await interaction.response.send_message("לחץ על הפקודה הרצויה", view=view, ephemeral=False)
+        view.add_item(CommandButton(blurple, "מועצת שבט", "🔥", 4, self.create_tribal))
+        view.add_item(CommandButton(blurple, "נעל פקודות", "🔒", 4, self.lock_commands))
+        view.add_item(CommandButton(blurple, "פתח פקודות", "🔓", 4, self.unlock_commands))
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(PlayerManagement(bot))
