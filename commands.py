@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import arabic_reshaper
 from bidi.algorithm import get_display
+import random
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1489,6 +1490,26 @@ class PlayerManagement(commands.Cog):
         view.add_item(TribeSelect(tribe_list, create_tribal_callback))
         await interaction.response.send_message("בחר איזה שבט הולך למועצה:", view=view, ephemeral=True)
 
+    async def random_player(self, interaction: discord.Interaction):
+        players_list = await self.get_players_list(interaction.guild)
+
+        # define what happens upon selection
+        async def random_player_callback(select_interaction: discord.Interaction, selected_players):
+            choice = random.choice(selected_players)
+            
+            # announce choice
+            embed = discord.Embed(
+                title="הגרלה התבצעה",
+                description=f"התבצעה הגרלה בין {",".join(selected_players)} והשחקן/ית שנבחר/ה הוא/היא {choice}",
+                color=discord.Color.default()
+            )
+            await select_interaction.response.send_message(embed=embed, ephemeral=False)
+
+        view = discord.ui.View()
+        view.add_item(PlayerMultiSelect(players_list, random_player_callback))
+        await interaction.response.defer()
+        await interaction.followup.send("בחר שחקנים להגרלה:", view=view, ephemeral=True)
+
     async def lock_commands(self, interaction: discord.Interaction):
         global commands_locked
         if commands_locked: return
@@ -1532,8 +1553,9 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(red, "הסר יתרון", "➖", 3, self.retire_advantage))
         view.add_item(CommandButton(red, "הסר שחקן", "💀", 3, self.expel))
         view.add_item(CommandButton(blurple, "מועצת שבט", "🔥", 4, self.create_tribal))
-        view.add_item(CommandButton(blurple, "נעל פקודות", "🔒", 4, self.lock_commands))
-        view.add_item(CommandButton(blurple, "פתח פקודות", "🔓", 4, self.unlock_commands))
+        view.add_item(CommandButton(blurple, "בצע הגרלה", "🎲", 4, self.random_player))
+        view.add_item(CommandButton(blurple, "נעל פקודות", "🔒", 0, self.lock_commands))
+        view.add_item(CommandButton(blurple, "פתח פקודות", "🔓", 0, self.unlock_commands))
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="measure_time", description="מדידת זמן בין שתי הודעות")
