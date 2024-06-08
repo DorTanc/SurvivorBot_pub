@@ -1536,5 +1536,27 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(blurple, "פתח פקודות", "🔓", 4, self.unlock_commands))
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
+    @app_commands.command(name="measure_time", description="מדידת זמן בין שתי הודעות")
+    @app_commands.describe(id1="הודעת התחלה", id2="הודעת סיום")
+    @commands.has_role('Host')
+    async def measure_time(self, interaction: discord.Interaction, id1: str, id2: str):
+        message1 = await interaction.channel.fetch_message(id1)
+        message2 = await interaction.channel.fetch_message(id2)
+
+        # Convert snowflake IDs to timestamps
+        timestamp1 = message1.created_at
+        timestamp2 = message2.created_at
+
+        # Calculate the time difference
+        time_difference = timestamp2 - timestamp1
+        
+        # inform player
+        embed = discord.Embed(
+            title="הזמן שלך נמדד",
+            description=f"הזמן שלך במשימה הוא {time_difference}",
+            color=discord.Color.from_rgb(r=255,g=255,b=255)
+            )
+        await interaction.response.send_message(embed=embed, ephemeral=False)
+
 async def setup(bot):
     await bot.add_cog(PlayerManagement(bot))
