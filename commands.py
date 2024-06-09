@@ -979,7 +979,7 @@ class PlayerManagement(commands.Cog):
         view.add_item(PlayerSelect(players_list, create_parchment_callback))
         await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=True)
 
-    @app_commands.command(name="command_menu", description="תפריט פקודות לשחקנים")
+    @app_commands.command(name="jeffy", description="תפריט פקודות לשחקנים")
     async def command_menu(self, interaction: discord.Interaction):
         is_correct_channel, player_game_channel = await self.is_in_correct_channel(interaction)
         if not is_correct_channel:
@@ -1249,6 +1249,54 @@ class PlayerManagement(commands.Cog):
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, add_chips_callback))
         await interaction.response.send_message("בחר שחקן שיקבל את הצ'יפים:", view=view, ephemeral=True)
+
+    async def remove_chips(self, interaction: discord.Interaction):
+        players_list = await self.get_players_list(interaction.guild)
+
+        # define what happens upon selection
+        async def remove_chips_callback(select_interaction: discord.Interaction, selected_player):
+            
+            # define what happens upon amount submission
+            async def remove_chips_callback2(modal_interaction: discord.Interaction, chips_amount):
+                # update chip database
+                current_amount = await self.get_player_chips(interaction.guild, selected_player)
+                new_amount = current_amount - chips_amount
+                if new_amount < 0:
+                    await modal_interaction.response.send_message(f"כמות לא תקינה, לשחקן אין מספיק צ'יפים", ephemeral=True)
+                    return
+                await self.update_chips(interaction.guild, selected_player, new_amount)
+                await modal_interaction.response.send_message(f"השחקן {selected_player} איבד {chips_amount} צ'יפים", ephemeral=True)
+
+                # Send an embed message to the player's private channel
+                player_channel_name = f"{selected_player.replace(' ', '-')}-משחק".lower()
+                player_channel = discord.utils.get(interaction.guild.text_channels, name=player_channel_name)
+                if player_channel:
+                    player_embed = discord.Embed(
+                        title="אוי לא!",
+                        description=f"איבדת {chips_amount} צ'יפים\nעכשיו יש לך {new_amount} צ'יפים",
+                        color=await self.get_player_tribe_color(interaction.guild, selected_player)
+                    )
+                    file = discord.File("chips.png", filename="chips.png")
+                    player_embed.set_image(url="attachment://chips.png")
+                    await player_channel.send(file=file, embed=player_embed)
+
+                # Log the addition
+                log_channel = interaction.guild.get_channel(log_channel_id)
+                if log_channel:
+                    embed = discord.Embed(
+                        title="הסרת צ'יפים",
+                        description=f"השחקן {selected_player} איבד {chips_amount} צ'יפים\nל {selected_player} יש עכשיו {new_amount} צ'יפים",
+                        color=await self.get_player_tribe_color(interaction.guild, selected_player)
+                    )
+                    file = discord.File("chips.png", filename="chips.png")
+                    embed.set_image(url="attachment://chips.png")
+                    await log_channel.send(file=file, embed=embed)
+
+            await select_interaction.response.send_modal(ChipsAmount(remove_chips_callback2))
+
+        view = discord.ui.View()
+        view.add_item(PlayerSelect(players_list, remove_chips_callback))
+        await interaction.response.send_message("בחר שחקן שיאבד את הצ'יפים:", view=view, ephemeral=True)
 
     async def give_advantage(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1579,6 +1627,7 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(green, "פריט חדש", "➕", 1, self.add_menu_item))
         view.add_item(CommandButton(blurple, "שנה שבט", "🚩", 2, self.change_tribe))
         view.add_item(CommandButton(blurple, "הוסף צ'יפים", "💵", 2, self.add_chips))
+        view.add_item(CommandButton(blurple, "הסר צ'יפים", "💵", 2, self.remove_chips))
         view.add_item(CommandButton(blurple, "הוסף יתרון", "🎁", 2, self.give_advantage))
         view.add_item(CommandButton(red, "הסר יתרון", "➖", 3, self.retire_advantage))
         view.add_item(CommandButton(red, "הסר שחקן", "💀", 3, self.expel))
