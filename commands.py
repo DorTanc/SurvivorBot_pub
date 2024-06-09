@@ -138,6 +138,22 @@ class ChipsAmount(discord.ui.Modal):
             return
         await self.dynamic_callback(modal_interaction, amount)
 
+class MaxNumber(discord.ui.Modal):
+    amount = discord.ui.TextInput(label="מספר מקסימלי", placeholder="הזן מספר מקסימלי להגרלה", min_length=1, max_length=5, required=True)
+    def __init__(self, callback):
+        self.dynamic_callback = callback
+        super().__init__(title="הגרלת מספר")
+
+    async def on_submit(self, modal_interaction: discord.Interaction):
+        amount = int(self.amount.value)
+        try:
+            if amount <= 1:
+                raise ValueError("המספר חייב להיות גדול מ-1.")
+        except ValueError:
+            await modal_interaction.response.send_message("מספר לא תקין. אנא נסה שוב.", ephemeral=True)
+            return
+        await self.dynamic_callback(modal_interaction, amount)
+
 class AllianceName(discord.ui.Modal):
     alliance_name = discord.ui.TextInput(label="שם הברית", placeholder="הזן את שם הברית", required=False)
     def __init__(self, callback):
@@ -228,10 +244,10 @@ class Parchment(discord.ui.Modal):
             font_size = int(self.font_size.value)
         except ValueError:
             font_size = 80  
-        if font_size < 20:
-            font_size = 20
-        if font_size > 80:
-            font_size = 80
+        if font_size < 40:
+            font_size = 40
+        if font_size > 90:
+            font_size = 90
         if self.font_color.value.lower() not in ["black","white","red","yellow","blue","green","purple","pink","orange","brown","grey"]:
             font_color = "black"
         else: font_color = self.font_color.value.lower()
@@ -281,17 +297,12 @@ class PlayerManagement(commands.Cog):
                 guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False)
             })
 
-        alliance_text_channel = discord.utils.get(guild.text_channels, name=alliance_name)
-        if not alliance_text_channel:
-            alliance_text_channel = await guild.create_text_channel(alliance_name, category=category, overwrites={
-                guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False)
-            })
-
-        alliance_voice_channel = discord.utils.get(guild.voice_channels, name=alliance_name)
-        if not alliance_voice_channel:
-            alliance_voice_channel = await guild.create_voice_channel(alliance_name, category=category, overwrites={
-                guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=False)
-            })
+        alliance_text_channel = await guild.create_text_channel(alliance_name, category=category, overwrites={
+            guild.default_role: discord.PermissionOverwrite(read_messages=False, view_channel=False)
+        })
+        alliance_voice_channel = await guild.create_voice_channel(alliance_name, category=category, overwrites={
+            guild.default_role: discord.PermissionOverwrite(connect=False, view_channel=False)
+        })
 
         for player_name in selected_players:
             role = discord.utils.get(guild.roles, name=player_name)
@@ -581,9 +592,9 @@ class PlayerManagement(commands.Cog):
                 # set alliance category
                 common_tribe =  await self.is_tribe_overlap(guild, selected_players)
                 if common_tribe:
-                    category_name = f"{common_tribe} - בריתות"
+                    category_name = f"בריתות - {common_tribe} 🤝"
                 else:
-                    category_name = "בריתות בין שבטיות"
+                    category_name = "בריתות בין שבטיות 🤝"
 
                 # check for duplicates
                 duplicate = await self.check_alliance_duplicates(guild, selected_players)
@@ -690,7 +701,7 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(players_list, transfer_chips_callback2))
-            await modal_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=False)
+            await modal_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=True)
 
         await interaction.response.send_modal(ChipsAmount(transfer_chips_callback))
 
@@ -761,11 +772,11 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(players_list, transfer_advantage_callback2))
-            await select_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=False)
+            await select_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=True)
 
         view = discord.ui.View()
         view.add_item(AdvantageSelect(advantages_list, transfer_advantage_callback))
-        await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=False)
+        await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=True)
 
     async def buy_advantage(self, interaction: discord.Interaction):
         menu = await self.fetch_menu(interaction.guild)
@@ -823,6 +834,16 @@ class PlayerManagement(commands.Cog):
                 )
                 await select_interaction.response.send_message(embed=embed, ephemeral=False)
                 return
+            
+            # check if user already has the item
+            if selected_item in player_advantages:
+                embed = discord.Embed(
+                    title="אוי לא!",
+                    description="כבר קנית את היתרון הזה, נסה לבחור יתרון אחר",
+                    color=discord.Color.red()
+                )
+                await select_interaction.response.send_message(embed=embed, ephemeral=False)
+                return
 
             # confirm purchase to buyer
             embed = discord.Embed(
@@ -851,7 +872,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(AdvantageSelect(items_list, buy_advantage_callback))
-        await interaction.response.send_message("בחר יתרון שברצונך לקנות:", view=view, ephemeral=False)
+        await interaction.response.send_message("בחר יתרון שברצונך לקנות:", view=view, ephemeral=True)
 
     async def find_idol(self, interaction: discord.Interaction):
         player_name = interaction.user.display_name
@@ -956,7 +977,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, create_parchment_callback))
-        await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=False)
+        await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=True)
 
     @app_commands.command(name="command_menu", description="תפריט פקודות לשחקנים")
     async def command_menu(self, interaction: discord.Interaction):
@@ -1076,7 +1097,7 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(TribeSelect(tribe_list, add_player_callback2))
-            await modal_interaction.response.send_message("בחר שבט לשחקן:", view=view)
+            await modal_interaction.response.send_message("בחר שבט לשחקן:", view=view, ephemeral=True)
 
         await interaction.response.send_modal(PlayerName(add_player_callback))
 
@@ -1374,7 +1395,7 @@ class PlayerManagement(commands.Cog):
 
                 view=discord.ui.View()
                 view.add_item(RoleSelect(expel_callback2))
-                await select_interaction.response.send_message("בחר סוג מודח:",view=view)
+                await select_interaction.response.send_message("בחר סוג מודח:",view=view, ephemeral=True)
             else:
                 await select_interaction.response.send_message("שחקן לא נמצא.")
 
@@ -1474,16 +1495,7 @@ class PlayerManagement(commands.Cog):
             await tribal_channel.send(file=file)
             await tribal_channel.send(f"**0/{members_num}**")
 
-            # Send a log message to the log channel
-            log_channel = select_interaction.guild.get_channel(log_channel_id)
-            if log_channel:
-                embed = discord.Embed(
-                    title = "מועצת שבט נפתחה",
-                    description = f"ערוץ מועצה נפתח לשבט {selected_tribe}",
-                    color = await self.get_tribe_color(select_interaction.guild, selected_tribe)
-                )
-                await log_channel.send(embed=embed)
-
+            # confirm
             await select_interaction.response.send_message(f"ערוץ מועצה נפתח לשבט {selected_tribe}", ephemeral=True)
 
         view = discord.ui.View()
@@ -1495,20 +1507,38 @@ class PlayerManagement(commands.Cog):
 
         # define what happens upon selection
         async def random_player_callback(select_interaction: discord.Interaction, selected_players):
-            choice = random.choice(selected_players)
+            randomized_player = random.choice(selected_players)
             
             # announce choice
             embed = discord.Embed(
                 title="הגרלה התבצעה",
-                description=f"התבצעה הגרלה בין {",".join(selected_players)} והשחקן/ית שנבחר/ה הוא/היא {choice}",
+                description=f"התבצעה הגרלה בין {",".join(selected_players)} והשחקן/ית שנבחר/ה הוא/היא {randomized_player}",
                 color=discord.Color.default()
             )
             await select_interaction.response.send_message(embed=embed, ephemeral=False)
 
         view = discord.ui.View()
         view.add_item(PlayerMultiSelect(players_list, random_player_callback))
-        await interaction.response.defer()
-        await interaction.followup.send("בחר שחקנים להגרלה:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקנים להגרלה:", view=view, ephemeral=True)
+
+    async def random_number(self, interaction: discord.Interaction):
+        # define what happens upon number submission
+        async def random_number_callback(modal_interaction: discord.Interaction, max_number):
+            # Generate a list of numbers from 1 to n
+            number_list = list(range(1, max_number + 1))
+
+            # Get a random value from the list
+            random_num = random.choice(number_list)
+            
+            # announce choice
+            embed = discord.Embed(
+                title="הגרלה התבצעה",
+                description=f"הוגרל מספר אקראי בין 1 ל {max_number} והמספר שנבחר הוא {random_num}",
+                color=discord.Color.default()
+            )
+            await modal_interaction.response.send_message(embed=embed, ephemeral=False)
+
+        await interaction.response.send_modal(MaxNumber(random_number_callback))
 
     async def lock_commands(self, interaction: discord.Interaction):
         global commands_locked
@@ -1542,7 +1572,7 @@ class PlayerManagement(commands.Cog):
         blurple = discord.ButtonStyle.blurple
         green = discord.ButtonStyle.green
         red = discord.ButtonStyle.red
-        view.add_item(CommandButton(blurple, "רשימת שחקנים", "⛹️‍♂️", 0, self.players_data))
+        view.add_item(CommandButton(blurple, "הצג שחקנים", "⛹️‍♂️", 0, self.players_data))
         view.add_item(CommandButton(green, "שחקן חדש", "➕", 1, self.add_player))
         view.add_item(CommandButton(green, "שבט חדש", "➕", 1, self.add_tribe))
         view.add_item(CommandButton(green, "אליל חדש", "➕", 1, self.add_idol))
@@ -1553,7 +1583,8 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(red, "הסר יתרון", "➖", 3, self.retire_advantage))
         view.add_item(CommandButton(red, "הסר שחקן", "💀", 3, self.expel))
         view.add_item(CommandButton(blurple, "מועצת שבט", "🔥", 4, self.create_tribal))
-        view.add_item(CommandButton(blurple, "בצע הגרלה", "🎲", 4, self.random_player))
+        view.add_item(CommandButton(blurple, "הגרל שחקן", "🎲", 4, self.random_player))
+        view.add_item(CommandButton(blurple, "הגרל מספר", "🎲", 4, self.random_number))
         view.add_item(CommandButton(blurple, "נעל פקודות", "🔒", 0, self.lock_commands))
         view.add_item(CommandButton(blurple, "פתח פקודות", "🔓", 0, self.unlock_commands))
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
