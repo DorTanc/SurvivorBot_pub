@@ -32,6 +32,8 @@ class PlayerSelect(discord.ui.Select):
     async def callback(self, select_interaction: discord.Interaction):
         selected_player = self.values[0]
         await self.dynamic_callback(select_interaction, selected_player)
+        if select_interaction.message:
+            await select_interaction.message.delete()
 
 class PlayerMultiSelect(discord.ui.Select):
     def __init__(self, players_list, callback):
@@ -42,6 +44,8 @@ class PlayerMultiSelect(discord.ui.Select):
     async def callback(self, select_interaction: discord.Interaction):
         selected_players = self.values
         await self.dynamic_callback(select_interaction, selected_players)
+        if select_interaction.message:
+            await select_interaction.message.delete()
 
 class TribeSelect(discord.ui.Select):
     def __init__(self, tribe_list, callback):
@@ -52,6 +56,8 @@ class TribeSelect(discord.ui.Select):
     async def callback(self, select_interaction: discord.Interaction):
         selected_tribe = self.values[0]
         await self.dynamic_callback(select_interaction, selected_tribe)
+        if select_interaction.message:
+            await select_interaction.message.delete()
 
 class AdvantageSelect(discord.ui.Select):
     def __init__(self, advantage_list, callback):
@@ -62,6 +68,8 @@ class AdvantageSelect(discord.ui.Select):
     async def callback(self, select_interaction: discord.Interaction):
         selected_advantage = self.values[0]
         await self.dynamic_callback(select_interaction, selected_advantage)
+        if select_interaction.message:
+            await select_interaction.message.delete()
 
 class RoleSelect(discord.ui.Select):
     def __init__(self, callback):
@@ -72,6 +80,8 @@ class RoleSelect(discord.ui.Select):
     async def callback(self, select_interaction: discord.Interaction):
         selected_role = self.values[0]
         await self.dynamic_callback(select_interaction, selected_role)
+        if select_interaction.message:
+            await select_interaction.message.delete()
 
 class ColorSelect(discord.ui.Select):
     def __init__(self, callback):
@@ -109,6 +119,8 @@ class ColorSelect(discord.ui.Select):
         selected_color_name = self.values[0]
         selected_color_hex = self.color_name_to_hex(selected_color_name)
         await self.dynamic_callback(select_interaction, selected_color_name, selected_color_hex)
+        if select_interaction.message:
+            await select_interaction.message.delete()
 
 class ChipsAmount(discord.ui.Modal):
     amount = discord.ui.TextInput(label="מספר צ'יפים", placeholder="בחר כמות צ'יפים", min_length=1, max_length=5, required=True)
@@ -249,12 +261,15 @@ class Parchment(discord.ui.Modal):
         await self.dynamic_callback(modal_interaction, font_name, font_size, font_color, caption)
 
 class CommandButton(discord.ui.Button):
-    def __init__(self, style, label, emoji, row, callback):
+    def __init__(self, style, label, emoji, row, callback, temporary=False):
         self.btn_callback = callback
+        self.delete_on_click = temporary
         super().__init__(style=style, label=label, emoji=emoji, row=row)
 
     async def callback(self, btn_interaction: discord.Interaction):
         await self.btn_callback(btn_interaction)
+        if self.delete_on_click and btn_interaction.message:
+            await btn_interaction.message.delete()
 
 class Question(discord.ui.Modal):
     question = discord.ui.TextInput(label="השאלה שלך", placeholder="הזן את תוכן השאלה שלך", required=True, style=discord.TextStyle.long)
@@ -547,7 +562,7 @@ class PlayerManagement(commands.Cog):
             )
             embeds.append(embed)
 
-        await interaction.followup.send(embeds=embeds)
+        await interaction.followup.send(embeds=embeds, ephemeral=True)
 
     async def show_chips(self, interaction: discord.Interaction):
         # Get the player's chip
@@ -562,7 +577,7 @@ class PlayerManagement(commands.Cog):
         )
         file = discord.File("./images/chips.png", filename="chips.png")
         embed.set_image(url="attachment://chips.png")
-        await interaction.response.send_message(file=file, embed=embed)
+        await interaction.response.send_message(file=file, embed=embed, ephemeral=True)
 
     async def show_advantages(self, interaction: discord.Interaction):
         # Get the player's advantages
@@ -571,9 +586,12 @@ class PlayerManagement(commands.Cog):
         color = await self.get_player_tribe_color(interaction.guild, player_name)
         embeds = [] 
         files = []
-
         await interaction.response.defer()
-
+        
+        if not advantage_list:
+            await interaction.followup.send("אין לך יתרונות.", ephemeral=True)
+            return
+        
         # Create and send the embed message
         for advantage in advantage_list:
             embed = discord.Embed(title=advantage,description="",color= color)
@@ -582,7 +600,7 @@ class PlayerManagement(commands.Cog):
             embed.set_image(url=f"attachment://{filename}")
             embeds.append(embed)
             files.append(file)
-        await interaction.followup.send(files=files, embeds=embeds)
+        await interaction.followup.send(files=files, embeds=embeds, ephemeral=True)
 
     async def create_alliance(self, interaction: discord.Interaction):
         # define what happens upon name submission
@@ -642,7 +660,7 @@ class PlayerManagement(commands.Cog):
             view = discord.ui.View()
             view.add_item(PlayerMultiSelect(players_list, create_alliance_callback2))
             await modal_interaction.response.defer()
-            await modal_interaction.followup.send("בחר שחקנים לברית:", view=view, ephemeral=True)
+            await modal_interaction.followup.send("בחר שחקנים לברית:", view=view, ephemeral=False)
         
         await interaction.response.send_modal(AllianceName(create_alliance_callback))
 
@@ -690,7 +708,7 @@ class PlayerManagement(commands.Cog):
                 )
                 file = discord.File("./images/chips.png", filename="chips.png")
                 embed.set_image(url="attachment://chips.png")
-                await select_interaction.response.send_message(file=file, embed=embed, ephemeral=False)
+                await select_interaction.response.send_message(file=file, embed=embed, ephemeral=True)
 
                 # confirmation to target player
                 target_channel_name = f"{selected_player.replace(' ', '-').lower()}-משחק"
@@ -703,7 +721,7 @@ class PlayerManagement(commands.Cog):
                     )
                     file = discord.File("./images/chips.png", filename="chips.png")
                     embed.set_image(url="attachment://chips.png")
-                    await target_channel.send(file=file, embed=embed)
+                    await target_channel.send(file=file, embed=embed, ephemeral=True)
 
                 # log transfer
                 log_channel = select_interaction.guild.get_channel(log_channel_id)
@@ -717,7 +735,7 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(players_list, transfer_chips_callback2))
-            await modal_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=True)
+            await modal_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=False)
 
         await interaction.response.send_modal(ChipsAmount(transfer_chips_callback))
 
@@ -763,7 +781,7 @@ class PlayerManagement(commands.Cog):
                 )
                 file = discord.File(f"./images/{filename}", filename=filename)
                 embed.set_image(url=f"attachment://{filename}")
-                await select_interaction.response.send_message(file=file, embed=embed, ephemeral=False)
+                await select_interaction.response.send_message(file=file, embed=embed, ephemeral=True)
 
                 # confirmation to target player
                 target_channel_name = f"{selected_player.replace(' ', '-').lower()}-משחק"
@@ -776,7 +794,7 @@ class PlayerManagement(commands.Cog):
                     )
                     file = discord.File(f"./images/{filename}", filename=filename)
                     embed.set_image(url=f"attachment://{filename}")
-                    await target_channel.send(file=file, embed=embed)
+                    await target_channel.send(file=file, embed=embed, ephemeral=True)
 
                 # log transfer
                 log_channel = select_interaction.guild.get_channel(log_channel_id)
@@ -790,11 +808,11 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(players_list, transfer_advantage_callback2))
-            await select_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=True)
+            await select_interaction.response.send_message("בחר שחקן להעברה:", view=view, ephemeral=False)
 
         view = discord.ui.View()
         view.add_item(AdvantageSelect(advantages_list, transfer_advantage_callback))
-        await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר יתרון להעברה:", view=view, ephemeral=False)
 
     async def buy_advantage(self, interaction: discord.Interaction):
         menu = await self.fetch_items(interaction.guild)
@@ -825,7 +843,7 @@ class PlayerManagement(commands.Cog):
                         description="כבר קנית את כל הרמזים לאליל בשבט שלך. פנה למנהלים ובקש שיכינו רמז נוסף\nלאחר מכן תוכל לנסות לקנות רמז שוב",
                         color=discord.Color.red()
                     )
-                    await select_interaction.response.send_message(embed=embed, ephemeral=False)
+                    await select_interaction.response.send_message(embed=embed, ephemeral=True)
                     return
             user_chips = await self.get_player_chips(select_interaction.guild, player_name)
             price = await self.get_item_price(select_interaction.guild, selected_item)
@@ -840,7 +858,7 @@ class PlayerManagement(commands.Cog):
                     description="אין לך מספיק צ'יפים כדי לקנות את היתרון הזה.",
                     color=discord.Color.red()
                 )
-                await select_interaction.response.send_message(embed=embed, ephemeral=False)
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
             # check if advantage still available in menu
@@ -850,7 +868,7 @@ class PlayerManagement(commands.Cog):
                     description="היתרון שבחרת אזל במלאי, נסה לבחור יתרון אחר",
                     color=discord.Color.red()
                 )
-                await select_interaction.response.send_message(embed=embed, ephemeral=False)
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
                 return
             
             # check if user already has the item
@@ -860,7 +878,7 @@ class PlayerManagement(commands.Cog):
                     description="כבר קנית את היתרון הזה, נסה לבחור יתרון אחר",
                     color=discord.Color.red()
                 )
-                await select_interaction.response.send_message(embed=embed, ephemeral=False)
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
                 return
 
             # confirm purchase to buyer
@@ -870,7 +888,7 @@ class PlayerManagement(commands.Cog):
                 color=await self.get_player_tribe_color(select_interaction.guild, player_name)
                 )
             embed.set_image(url=f"attachment://{image}")
-            await select_interaction.response.send_message(file=file, embed=embed, ephemeral=False)
+            await select_interaction.response.send_message(file=file, embed=embed, ephemeral=True)
             
             # log purchase
             log_channel = select_interaction.guild.get_channel(log_channel_id)
@@ -889,7 +907,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(AdvantageSelect(items_list, buy_advantage_callback))
-        await interaction.response.send_message("בחר יתרון שברצונך לקנות:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר יתרון שברצונך לקנות:", view=view, ephemeral=False)
 
     async def find_idol(self, interaction: discord.Interaction):
         player_name = interaction.user.display_name
@@ -993,7 +1011,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, create_parchment_callback))
-        await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקן שברצונך להצביע נגדו:", view=view, ephemeral=False)
 
     async def send_question(self, interaction: discord.Interaction):
         user = interaction.user.display_name
@@ -1032,8 +1050,8 @@ class PlayerManagement(commands.Cog):
             await interaction.response.send_modal(Question(send_question_callback2))
 
         view = discord.ui.View()
-        view.add_item(CommandButton(discord.ButtonStyle.green, "הסתדרתי, תודה!", "👍", 0, send_question_dismiss))
-        view.add_item(CommandButton(discord.ButtonStyle.red, "קראתי את החוקים ולא מצאתי תשובה", "👎", 0, send_question_callback))
+        view.add_item(CommandButton(discord.ButtonStyle.green, "הסתדרתי, תודה!", "👍", 0, send_question_dismiss, True))
+        view.add_item(CommandButton(discord.ButtonStyle.red, "קראתי את החוקים ולא מצאתי תשובה", "👎", 0, send_question_callback, True))
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(name="jeffy", description="תפריט פקודות לשחקנים")
@@ -1156,7 +1174,7 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(TribeSelect(tribe_list, add_player_callback2))
-            await modal_interaction.response.send_message("בחר שבט לשחקן:", view=view, ephemeral=True)
+            await modal_interaction.response.send_message("בחר שבט לשחקן:", view=view, ephemeral=False)
 
         await interaction.response.send_modal(PlayerName(add_player_callback))
 
@@ -1203,7 +1221,7 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(ColorSelect(add_tribe_callback2))
-            await modal_interaction.response.send_message("בחר צבע לשבט:", view=view, ephemeral=True)
+            await modal_interaction.response.send_message("בחר צבע לשבט:", view=view, ephemeral=False)
 
         await interaction.response.send_modal(TribeName(add_tribe_callback))
 
@@ -1258,11 +1276,11 @@ class PlayerManagement(commands.Cog):
             
             view = discord.ui.View()
             view.add_item(TribeSelect(tribe_list, change_tribe_callback2))
-            await select_interaction.response.send_message("בחר שבט חדש לשחקן", view=view, ephemeral=True)
+            await select_interaction.response.send_message("בחר שבט חדש לשחקן", view=view, ephemeral=False)
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, change_tribe_callback))
-        await interaction.response.send_message("בחר שחקן שיעבור שבט:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקן שיעבור שבט:", view=view, ephemeral=False)
 
     async def add_chips(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1305,7 +1323,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, add_chips_callback))
-        await interaction.response.send_message("בחר שחקן שיקבל את הצ'יפים:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקן שיקבל את הצ'יפים:", view=view, ephemeral=False)
 
     async def remove_chips(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1351,7 +1369,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, remove_chips_callback))
-        await interaction.response.send_message("בחר שחקן שיאבד את הצ'יפים:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקן שיאבד את הצ'יפים:", view=view, ephemeral=False)
 
     async def give_item(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1399,11 +1417,11 @@ class PlayerManagement(commands.Cog):
 
             view = discord.ui.View()
             view.add_item(PlayerSelect(item_list, give_item_callback2))
-            await select_interaction.response.send_message("בחר את הפריט שהשחקן יקבל:", view=view, ephemeral=True)
+            await select_interaction.response.send_message("בחר את הפריט שהשחקן יקבל:", view=view, ephemeral=False)
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, give_item_callback))
-        await interaction.response.send_message("בחר שחקן שיקבל את הפריט:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקן שיקבל את הפריט:", view=view, ephemeral=False)
 
     async def retire_item(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1448,11 +1466,11 @@ class PlayerManagement(commands.Cog):
             
             view = discord.ui.View()
             view.add_item(AdvantageSelect(items_list, retire_item_callback2))
-            await select_interaction.response.send_message("בחר את הפריט שיוסר:", view=view, ephemeral=True)
+            await select_interaction.response.send_message("בחר את הפריט שיוסר:", view=view, ephemeral=False)
 
         view = discord.ui.View()
         view.add_item(PlayerSelect(players_list, retire_item_callback))
-        await interaction.response.send_message("בחר את השחקן שממנו יוסר הפריט:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר את השחקן שממנו יוסר הפריט:", view=view, ephemeral=False)
 
     async def replenish(self, interaction: discord.Interaction):
         items = await self.fetch_items(interaction.guild)
@@ -1480,7 +1498,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(AdvantageSelect(items_list, replenish_callback))
-        await interaction.response.send_message("בחר פריט שברצונך לחדש את המלאי שלו:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר פריט שברצונך לחדש את המלאי שלו:", view=view, ephemeral=False)
 
     async def change_price(self, interaction: discord.Interaction):
         items = await self.fetch_items(interaction.guild)
@@ -1517,7 +1535,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(AdvantageSelect(items_list, change_price_callback))
-        await interaction.response.send_message("בחר פריט שברצונך לשנות את המחיר שלו:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר פריט שברצונך לשנות את המחיר שלו:", view=view, ephemeral=False)
 
     async def expel(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1562,13 +1580,13 @@ class PlayerManagement(commands.Cog):
 
                 view=discord.ui.View()
                 view.add_item(RoleSelect(expel_callback2))
-                await select_interaction.response.send_message("בחר סוג מודח:",view=view, ephemeral=True)
+                await select_interaction.response.send_message("בחר סוג מודח:",view=view, ephemeral=False)
             else:
                 await select_interaction.response.send_message("שחקן לא נמצא.")
 
         view=discord.ui.View()
         view.add_item(PlayerSelect(players_list, expel_callback))
-        await interaction.response.send_message("בחר שחקן להדחה:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקן להדחה:", view=view, ephemeral=False)
 
     async def add_idol(self, interaction: discord.Interaction):
         tribes = await self.fetch_tribes(interaction.guild)
@@ -1610,7 +1628,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(TribeSelect(tribe_list, add_idol_callback))
-        await interaction.response.send_message("בחר שבט שבו יוחבא האליל:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שבט שבו יוחבא האליל:", view=view, ephemeral=False)
     
     async def add_item(self, interaction: discord.Interaction):
         # define what happens upon submission
@@ -1672,7 +1690,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(TribeSelect(tribe_list, create_tribal_callback))
-        await interaction.response.send_message("בחר איזה שבט הולך למועצה:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר איזה שבט הולך למועצה:", view=view, ephemeral=False)
 
     async def random_player(self, interaction: discord.Interaction):
         players_list = await self.get_players_list(interaction.guild)
@@ -1691,7 +1709,7 @@ class PlayerManagement(commands.Cog):
 
         view = discord.ui.View()
         view.add_item(PlayerMultiSelect(players_list, random_player_callback))
-        await interaction.response.send_message("בחר שחקנים להגרלה:", view=view, ephemeral=True)
+        await interaction.response.send_message("בחר שחקנים להגרלה:", view=view, ephemeral=False)
 
     async def random_number(self, interaction: discord.Interaction):
         # define what happens upon number submission
