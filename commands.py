@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 log_channel_id = 1248637078481145878
+rules_channel_id = 1248682178989129908
 database_players_channel_id = 1248636683784818689
 database_tribes_channel_id = 1248636758934028370
 database_idol_channel_id = 1248636824901910539
@@ -584,6 +585,7 @@ class PlayerManagement(commands.Cog):
         player_name = interaction.user.display_name
         advantage_list = await self.get_player_advantages(interaction.guild, player_name)
         color = await self.get_player_tribe_color(interaction.guild, player_name)
+        idols = await self.fetch_idols(interaction.guild)
         embeds = [] 
         files = []
         await interaction.response.defer()
@@ -595,7 +597,11 @@ class PlayerManagement(commands.Cog):
         # Create and send the embed message
         for advantage in advantage_list:
             embed = discord.Embed(title=advantage,description="",color= color)
-            filename = await self.get_item_image(interaction.guild, advantage)
+            is_idol = any(advantage in row for row in idols)
+            if is_idol:
+                filename = await self.get_idol_image(interaction.guild, advantage)
+            else:
+                filename = await self.get_item_image(interaction.guild, advantage)
             file = discord.File(f"./images/{filename}", filename=filename)
             embed.set_image(url=f"attachment://{filename}")
             embeds.append(embed)
@@ -828,13 +834,15 @@ class PlayerManagement(commands.Cog):
         except StopIteration:
             clue = None
         # alias the clue's name to hide its number
-        clue_alias = "רמז לאליל החסינות"
-        items_list.append(clue_alias)
+        items_list.append("רמז לאליל החסינות")
+        # alias secret advantage
+        items_list.remove("גניבת קול שקטה")
+        items_list.append("יתרון סודי")
 
         # define what happens upon selection
         async def buy_advantage_callback(select_interaction: discord.Interaction, selected_item):
             # reveal true number of clue if bought
-            if selected_item == clue_alias:
+            if selected_item == "רמז לאליל החסינות":
                 selected_item = clue
                 # if no available clue
                 if not clue:
@@ -845,6 +853,8 @@ class PlayerManagement(commands.Cog):
                     )
                     await select_interaction.response.send_message(embed=embed, ephemeral=True)
                     return
+            if selected_item == "יתרון סודי":
+                selected_item = "גניבת קול שקטה"
             user_chips = await self.get_player_chips(select_interaction.guild, player_name)
             price = await self.get_item_price(select_interaction.guild, selected_item)
             amount = await self.get_item_amount(select_interaction.guild, selected_item)
@@ -909,6 +919,108 @@ class PlayerManagement(commands.Cog):
         view.add_item(AdvantageSelect(items_list, buy_advantage_callback))
         await interaction.response.send_message("בחר יתרון שברצונך לקנות:", view=view, ephemeral=False)
 
+    async def play_advantage(self, interaction: discord.Interaction):
+        player_name = interaction.user.display_name
+        player_items = await self.get_player_advantages(interaction.guild, player_name)
+        # filter clues and disadvantages
+        player_advantages = [item for item in player_items if "רמז" not in item and item not in ["קול בכד","איבוד קול"]]
+
+        # define what happens upon selection
+        async def play_advantage_callback(select_interaction: discord.Interaction, selected_advantage):
+            rules_channel = interaction.guild.get_channel(rules_channel_id)
+            color = await self.get_player_tribe_color(select_interaction.guild, player_name)
+            idols = await self.fetch_idols(select_interaction.guild)
+            is_idol = any(selected_advantage in row for row in idols)
+            # player trying to play an idol/legacy advantage
+            if is_idol or selected_advantage == "יתרון מורשת":
+                embed = discord.Embed(
+                    title="רוצה לשחק אליל?",
+                    description=f"היתרון שבחרת הוא אליל חסינות, ואין צורך להשתמש בי כדי לשחק אותו\nאם אתה צריך תזכורת לחוקי השימוש באליל, עבור לערוץ {rules_channel.mention}",
+                    color=color
+                    )
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
+            # player trying to play extra SITD
+            if selected_advantage == "ירייה באפלה נוספת":
+                embed = discord.Embed(
+                    title="רוצה לשחק ירייה באפלה נוספת?",
+                    description=f"אין צורך להשתמש בי כדי לשחק ירייה באפלה\nאם אתה צריך תזכורת לחוקי השימוש בירייה באפלה, עבור לערוץ {rules_channel.mention}",
+                    color=color
+                    )
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
+            # player trying to play an extra vote
+            if selected_advantage == "קול כפול":
+                embed = discord.Embed(
+                    title="רוצה לשחק קול כפול?",
+                    description=f"אין צורך להשתמש בי כדי לשחק את היתרון הזה, עליך לשלוח שני פתקי הצבעה והמנהלים יבינו מכך ששיחקת את היתרון",
+                    color=color
+                    )
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
+            # player trying to play an advantage with no activation
+            if selected_advantage in ["יתרון במשימה","כפיית ערבוב","מרד"]:
+                embed = discord.Embed(
+                    title="לא ניתן להפעיל את היתרון הזה",
+                    description=f"היתרון שבחרת הוא יתרון שזמן ההפעלה שלו קבוע מראש ולא נתון לבחירתך.\nאם אתה צריך תזכורת לחוקים של יתרון מסוים, לחץ על 'היתרונות שלי' בתפריט",
+                    color=color
+                    )
+                await select_interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
+            # player chose dealer advantage (automated)
+            if selected_advantage == "יתרון הדילר":
+                tribe = await self.get_player_tribe(select_interaction.guild, player_name)
+                tribe_members = await self.get_tribe_members(select_interaction.guild, tribe)
+                tribe_members.remove(player_name)
+                chips_sum = 0
+                for member in tribe_members:
+                    chips_sum += await self.get_player_chips(select_interaction.guild, member)
+                    
+                embed = discord.Embed(
+                    title=f"{selected_advantage} הופעל בהצלחה",
+                    description=f"סכום הצ'יפים הכולל של שאר חברי השבט שלך נכון לרגע זה הוא {chips_sum}",
+                    color=color
+                    )
+                await select_interaction.response.send_message(embed=embed, ephemeral=False)
+                await self.remove_advantage(select_interaction.guild, player_name, selected_advantage)
+
+                # log activation
+                log_channel = select_interaction.guild.get_channel(log_channel_id)
+                embed = discord.Embed(
+                    title=f"יתרון הופעל",
+                    description=f"השחקן {player_name} הפעיל את היתרון {selected_advantage}",
+                    color=color
+                )
+                await log_channel.send(embed=embed)
+                return
+
+            # player chose an advantage that requires host (SWP, KIP, vote steal)
+            embed = discord.Embed(
+                title=f"הפעלת את היתרון {selected_advantage}",
+                description=f"אם אתה כרגע במועצת שבט ונשארו לפחות שעתיים עד תום ההצבעה, היתרון הופעל בהצלחה. ההחלטה היא סופית ולא ניתן להתחרט.\nהמנהלים קיבלו התראה על הפעלת היתרון ויחזרו אליך כשיתפנו להשלמת המהלך.\nעד אז, ציין כאן כל מידע נוסף שנדרש ממך לצורך ההפעלה",
+                color=color
+                )
+            await select_interaction.response.send_message(embed=embed, ephemeral=False)
+            # the advantage won't be removed automatically in case player missed the deadline or isn't in tribal
+
+            # log activation and alert hosts
+            host_role = discord.utils.get(select_interaction.guild.roles, name="מנהל")
+            log_channel = select_interaction.guild.get_channel(log_channel_id)
+            embed = discord.Embed(
+                title=f"יתרון הופעל",
+                description=f"השחקן {player_name} הפעיל את היתרון {selected_advantage}\nנדרשת התערבות ישירה של מנהל כדי להשלים את ההפעלה",
+                color=color
+            )
+            await log_channel.send(f"{host_role.mention}", embed=embed)
+
+        view = discord.ui.View()
+        view.add_item(AdvantageSelect(player_advantages, play_advantage_callback))
+        await interaction.response.send_message("בחר יתרון שברצונך להפעיל:", view=view, ephemeral=False)
+
     async def find_idol(self, interaction: discord.Interaction):
         player_name = interaction.user.display_name
         tribe = await self.get_player_tribe(interaction.guild, player_name)
@@ -967,7 +1079,7 @@ class PlayerManagement(commands.Cog):
             # define what happens upon submission
             async def create_parchment_callback2(modal_interaction: discord.Interaction, font_name, font_size, font_color, caption):
                 # Load an image
-                image = Image.open('parchment.png')
+                image = Image.open('./images/parchment.png')
                 draw = ImageDraw.Draw(image)
                 # Try to use the specified font, fallback to Arial if it fails
                 try:
@@ -1015,7 +1127,6 @@ class PlayerManagement(commands.Cog):
 
     async def send_question(self, interaction: discord.Interaction):
         user = interaction.user.display_name
-        rules_channel_id = 1248682178989129908
         rules_channel = interaction.guild.get_channel(rules_channel_id)
         embed = discord.Embed(title='רק רגע!', 
             description=f'לפני שאשלח את השאלה שלכם למנהלים, עברו בבקשה לערוץ {rules_channel.mention} וקראו שוב את החוקים בעיון\nהמנהלים עבדו קשה כדי לנסח את כל החוקים בצורה ברורה ורוב הסיכויים שהתשובה שאתם מחפשים נמצאת שם', 
@@ -1052,7 +1163,7 @@ class PlayerManagement(commands.Cog):
         view = discord.ui.View()
         view.add_item(CommandButton(discord.ButtonStyle.green, "הסתדרתי, תודה!", "👍", 0, send_question_dismiss, True))
         view.add_item(CommandButton(discord.ButtonStyle.red, "קראתי את החוקים ולא מצאתי תשובה", "👎", 0, send_question_callback, True))
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=False)
 
     @app_commands.command(name="jeffy", description="תפריט פקודות לשחקנים")
     async def command_menu(self, interaction: discord.Interaction):
@@ -1076,6 +1187,7 @@ class PlayerManagement(commands.Cog):
         view.add_item(CommandButton(blurple, "העברת צ'יפים", "💸", 1, self.transfer_chips))
         view.add_item(CommandButton(blurple, "העברת יתרון", "📦", 1, self.transfer_advantage))
         view.add_item(CommandButton(blurple, "קניית יתרון", "🛒", 1, self.buy_advantage))
+        view.add_item(CommandButton(blurple, "הפעלת יתרון", "⚡", 1, self.play_advantage))
         view.add_item(CommandButton(blurple, "ברית חדשה", "🤝", 2, self.create_alliance))
         view.add_item(CommandButton(blurple, "חיפוש אליל", "🔍", 2, self.find_idol))
         view.add_item(CommandButton(blurple, "פתק הצבעה", "✍", 2, self.create_parchment))
@@ -1410,7 +1522,7 @@ class PlayerManagement(commands.Cog):
                 if log_channel:
                     embed = discord.Embed(
                         title="שחקן קיבל פריט",
-                        description=f"השחקן {selected_player} קיבל {selected_item}.",
+                        description=f"השחקן {selected_player} קיבל {selected_item}",
                         color=await self.get_player_tribe_color(interaction.guild, selected_player)
                     )
                     await log_channel.send(embed=embed)
@@ -1606,7 +1718,7 @@ class PlayerManagement(commands.Cog):
                 database_menu_channel = interaction.guild.get_channel(database_items_channel_id)
                 for index, clue in enumerate(clues):
                     if clue:
-                        clue_price = 20 * index+1 # 20 chips x clue number
+                        clue_price = 20 * (index+1) # 20 chips x clue number
                         await database_menu_channel.send(f"רמז {index+1} {selected_tribe},{clue_price},{clue_amount},{clue}")
 
                 # confirm addition
@@ -1755,7 +1867,7 @@ class PlayerManagement(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="host_command_menu", description="תפריט פקודות למנהלים")
-    @commands.has_role('Host')
+    @commands.has_role('מנהל')
     async def host_command_menu(self, interaction: discord.Interaction):
         embed = discord.Embed(title='תפריט פקודות', description='איך אפשר לעזור לך?', color=0xffffff)
         view = discord.ui.View()
@@ -1784,7 +1896,7 @@ class PlayerManagement(commands.Cog):
 
     @app_commands.command(name="measure_time", description="מדידת זמן בין שתי הודעות")
     @app_commands.describe(id1="הודעת התחלה", id2="הודעת סיום")
-    @commands.has_role('Host')
+    @commands.has_role('מנהל')
     async def measure_time(self, interaction: discord.Interaction, id1: str, id2: str):
         message1 = await interaction.channel.fetch_message(id1)
         message2 = await interaction.channel.fetch_message(id2)
